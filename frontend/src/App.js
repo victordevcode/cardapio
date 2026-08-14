@@ -10,7 +10,7 @@ export default function App() {
   const [telaAtual, setTelaAtual] = useState('listagem');
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
+    const token = sessionStorage.getItem('token');
     if (token) {
       setAutenticado(true);
     }
@@ -22,12 +22,12 @@ export default function App() {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('token');
+    sessionStorage.removeItem('token');
     setAutenticado(false);
   };
 
   if (!autenticado) {
-    return <Login onLoginSucesso={handleLoginSucesso} />;
+    return <Login aoLogar={handleLoginSucesso} />;
   }
 
   return (
@@ -57,7 +57,7 @@ export default function App() {
             onClick={handleLogout}
             className="px-3 py-1.5 text-xs font-bold bg-red-500/10 hover:bg-red-500 text-red-400 hover:text-white rounded-lg transition-all border border-red-500/20 flex items-center gap-1.5"
           >
-            Sair 🚪
+            Sair🚪
           </button>
         </header>
 

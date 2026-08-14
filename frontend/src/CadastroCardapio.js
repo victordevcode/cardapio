@@ -1,22 +1,39 @@
 import React, { useState, useEffect, useCallback } from 'react';
 
-export default function CadastroCardapio({ aoVoltar }) {
-  const [produtos, setProdutos] = useState([]);
-  const [categorias, setCategorias] = useState([]);
-  const [carregando, setCarregando] = useState(true);
-
-  // Controle de Edição (null se for novo produto, ou ID se for edição)
-  const [idEdicao, setIdEdicao] = useState(null);
-
-  // Estados dos campos do formulário
+export default function CadastroCardapio() {
   const [nome, setNome] = useState('');
   const [descricao, setDescricao] = useState('');
   const [preco, setPreco] = useState('');
   const [categoriaId, setCategoriaId] = useState('');
-  const [imagem, setImagem] = useState('');
-  const [mensagem, setMensagem] = useState({ tipo: '', texto: '' });
+  const [categorias, setCategorias] = useState([]);
+  const [produtos, setProdutos] = useState([]);
 
-  // 1. Buscar produtos do banco (GET)
+  // Estado para saber se estamos editando um produto existente
+  const [produtoEditandoId, setProdutoEditandoId] = useState(null);
+
+  // Mídia / Imagem
+  const [tipoImagem, setTipoImagem] = useState('arquivo'); // 'arquivo' ou 'url'
+  const [imagemUrl, setImagemUrl] = useState('');
+  const [arquivoImagem, setArquivoImagem] = useState(null);
+  const [previa, setPrevia] = useState('');
+
+  const [enviando, setEnviando] = useState(false);
+  const [carregandoLista, setCarregandoLista] = useState(true);
+
+  // 1. Buscar categorias
+  const buscarCategorias = useCallback(async () => {
+    try {
+      const res = await fetch('http://localhost:3000/api/categorias');
+      if (!res.ok) throw new Error('Erro ao buscar categorias');
+      const dados = await res.json();
+      setCategorias(dados);
+      if (dados.length > 0 && !categoriaId) setCategoriaId(dados[0].id);
+    } catch (err) {
+      console.error('Erro ao carregar categorias:', err);
+    }
+  }, [categoriaId]);
+
+  // 2. Buscar produtos
   const buscarProdutos = useCallback(async () => {
     try {
       const res = await fetch('http://localhost:3000/api/produtos');
@@ -24,382 +41,418 @@ export default function CadastroCardapio({ aoVoltar }) {
       const dados = await res.json();
       setProdutos(dados);
     } catch (err) {
-      console.error('Erro na requisição GET (produtos):', err);
+      console.error('Erro ao buscar produtos:', err);
     } finally {
-      setCarregando(false);
+      setCarregandoLista(false);
     }
   }, []);
 
-  // 2. Buscar categorias do banco (GET)
-  const buscarCategorias = useCallback(async () => {
-    try {
-      const res = await fetch('http://localhost:3000/api/categorias');
-      if (!res.ok) throw new Error('Erro ao buscar categorias');
-      const dados = await res.json();
-      setCategorias(dados);
-
-      if (dados.length > 0 && !categoriaId) {
-        setCategoriaId(dados[0].id);
-      }
-    } catch (err) {
-      console.error('Erro na requisição GET (categorias):', err);
-    }
-  }, [categoriaId]);
-
   useEffect(() => {
-    buscarProdutos();
     buscarCategorias();
-  }, [buscarProdutos, buscarCategorias]);
+    buscarProdutos();
+  }, [buscarCategorias, buscarProdutos]);
 
-  // Limpar formulário e resetar estado de edição
+  // Tratar arquivo local
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setArquivoImagem(file);
+      setPrevia(URL.createObjectURL(file));
+    }
+  };
+
+  // Limpar Formulário e cancelar edição
   const limparFormulario = () => {
     setNome('');
     setDescricao('');
     setPreco('');
-    setImagem('');
-    setIdEdicao(null);
-    if (categorias.length > 0) setCategoriaId(categorias[0].id);
+    setImagemUrl('');
+    setArquivoImagem(null);
+    setPrevia('');
+    setProdutoEditandoId(null);
   };
 
-  // Preenche o formulário para edição
-  const handleEditar = (prod) => {
-    setIdEdicao(prod.id);
+  // Iniciar Edição de um Produto
+  const iniciarEdicao = (prod) => {
+    setProdutoEditandoId(prod.id);
     setNome(prod.nome || '');
     setDescricao(prod.descricao || '');
     setPreco(prod.preco || '');
     setCategoriaId(prod.categoria_id || (categorias[0] ? categorias[0].id : ''));
-    setImagem(prod.imagem_url || prod.imagem || '');
-    setMensagem({ tipo: 'info', texto: `✏️ Editando produto ID #${prod.id}` });
-    window.scrollTo({ top: 0, behavior: 'smooth' }); // Rola até o topo
+    
+    const urlImagem = prod.imagem_url || prod.imagem || '';
+    setImagemUrl(urlImagem);
+    setPrevia(urlImagem);
+    setTipoImagem('url');
+    setArquivoImagem(null);
+
+    // Rola suavemente até o formulário no topo
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // Função para ALTERNAR STATUS (Disponível / Pausado)
-  const handleAlternarStatus = async (id, statusAtual) => {
-    const novoStatus = !statusAtual;
-    const token = localStorage.getItem('token'); // 🔑 Pega o token salvo no login
-
+  // Alternar Disponibilidade ao clicar na badge de status
+  const toggleDisponibilidade = async (prod) => {
+    const novaSituacao = prod.disponivel === false || prod.disponivel === 0 ? true : false;
     try {
-      const res = await fetch(`http://localhost:3000/api/produtos/${id}/status`, {
+      const res = await fetch(`http://localhost:3000/api/produtos/${prod.id}/disponibilidade`, {
         method: 'PATCH',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}` // 🔑 Envia autorização
-        },
-        body: JSON.stringify({ disponivel: novoStatus }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ disponivel: novaSituacao }),
       });
 
-      if (res.ok) {
-        setMensagem({
-          tipo: 'sucesso',
-          texto: novoStatus ? '🟢 Produto ativado no cardápio!' : '🟡 Produto pausado/esgotado!',
-        });
-        buscarProdutos();
+      if (!res.ok) {
+        // Fallback para atualização local
+        setProdutos((prev) =>
+          prev.map((p) => (p.id === prod.id ? { ...p, disponivel: novaSituacao } : p))
+        );
       } else {
-        setMensagem({ tipo: 'erro', texto: '❌ Sessão expirada ou sem permissão. Faça login novamente.' });
+        buscarProdutos();
       }
     } catch (err) {
-      setMensagem({ tipo: 'erro', texto: '❌ Não foi possível conectar ao servidor.' });
+      console.error('Erro ao alterar disponibilidade:', err);
+      // Atualização otimista
+      setProdutos((prev) =>
+        prev.map((p) => (p.id === prod.id ? { ...p, disponivel: novaSituacao } : p))
+      );
     }
   };
 
-  // Função para EXCLUIR um produto (DELETE)
-  const handleExcluir = async (id) => {
-    if (!window.confirm('Tem certeza que deseja excluir este produto?')) return;
-
-    const token = localStorage.getItem('token'); // 🔑 Pega o token
+  // Excluir Produto
+  const excluirProduto = async (id, nomeProduto) => {
+    if (!window.confirm(`Tem certeza que deseja excluir "${nomeProduto}"?`)) return;
 
     try {
       const res = await fetch(`http://localhost:3000/api/produtos/${id}`, {
         method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}` // 🔑 Envia autorização
-        }
       });
+      if (!res.ok) throw new Error('Erro ao excluir produto');
 
-      if (res.ok) {
-        setMensagem({ tipo: 'sucesso', texto: '🗑️ Produto excluído com sucesso!' });
-        if (idEdicao === id) limparFormulario();
-        buscarProdutos();
-      } else {
-        const erroBody = await res.json();
-        setMensagem({ tipo: 'erro', texto: `❌ Falha ao excluir: ${erroBody.mensagem || erroBody.erro}` });
-      }
+      alert('🗑️ Produto excluído com sucesso!');
+      buscarProdutos();
     } catch (err) {
-      setMensagem({ tipo: 'erro', texto: '❌ Não foi possível conectar ao servidor.' });
+      console.error('Erro ao excluir:', err);
+      alert('❌ Não foi possível excluir o produto.');
     }
   };
 
-  // 3. Salvar (POST) ou Atualizar (PUT)
+  // Cadastrar ou Atualizar (Submit)
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setMensagem({ tipo: 'info', texto: 'Processando...' });
-
-    if (!categoriaId) {
-      setMensagem({ tipo: 'erro', texto: '❌ Selecione uma categoria válida!' });
-      return;
-    }
-
-    const token = localStorage.getItem('token'); // 🔑 Pega o token
-    const produtoExistente = produtos.find((p) => p.id === idEdicao);
-
-    // Trata o preço permitindo digitar com vírgula ou ponto (ex: "22,00" vira 22.00)
-    const precoFormatado = parseFloat(String(preco).replace(',', '.'));
-
-    const novoProduto = {
-      nome,
-      descricao,
-      preco: precoFormatado,
-      categoria_id: parseInt(categoriaId, 10),
-      imagem_url: imagem,
-      disponivel: produtoExistente ? produtoExistente.disponivel !== false : true,
-    };
-
-    const url = idEdicao
-      ? `http://localhost:3000/api/produtos/${idEdicao}`
-      : 'http://localhost:3000/api/produtos';
-
-    const method = idEdicao ? 'PUT' : 'POST';
+    setEnviando(true);
 
     try {
+      const formData = new FormData();
+      formData.append('nome', nome);
+      formData.append('descricao', descricao);
+      formData.append('preco', preco);
+      formData.append('categoria_id', categoriaId);
+
+      if (tipoImagem === 'arquivo' && arquivoImagem) {
+        formData.append('imagem_arquivo', arquivoImagem);
+      } else if (tipoImagem === 'url' && imagemUrl) {
+        formData.append('imagem_url', imagemUrl);
+      }
+
+      const url = produtoEditandoId
+        ? `http://localhost:3000/api/produtos/${produtoEditandoId}`
+        : 'http://localhost:3000/api/produtos';
+
+      const method = produtoEditandoId ? 'PUT' : 'POST';
+
+      // PEGA O TOKEN DO SESSIONSTORAGE (E LOCALSTORAGE COMO FALLBACK)
+      const token = sessionStorage.getItem('token') || localStorage.getItem('token');
+
       const res = await fetch(url, {
-        method,
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}` // 🔑 Envia autorização
+        method: method,
+        headers: {
+          // Envia o Token de Autenticação para liberar a requisição no Backend!
+          'Authorization': `Bearer ${token}` 
         },
-        body: JSON.stringify(novoProduto),
+        body: formData, // Quando enviamos FormData, não colocamos 'Content-Type', o navegador define sozinho
       });
 
-      if (res.ok) {
-        setMensagem({
-          tipo: 'sucesso',
-          texto: idEdicao ? '✅ Produto atualizado com sucesso!' : '✅ Produto cadastrado com sucesso!',
-        });
-
-        limparFormulario();
-        buscarProdutos();
-      } else {
-        const erroBody = await res.json();
-        setMensagem({ tipo: 'erro', texto: `❌ Falha: ${erroBody.mensagem || erroBody.erro || 'Erro no servidor'}` });
+      if (!res.ok) {
+        if (res.status === 401) {
+          throw new Error('Sessão expirada ou não autorizada. Faça login novamente.');
+        }
+        throw new Error('Erro ao salvar produto');
       }
+
+      alert(
+        produtoEditandoId
+          ? '✏️ Produto atualizado com sucesso!'
+          : '✅ Produto cadastrado com sucesso!'
+      );
+
+      limparFormulario();
+      buscarProdutos();
     } catch (err) {
-      setMensagem({ tipo: 'erro', texto: '❌ Erro de conexão com o servidor.' });
+      console.error(err);
+      alert(`❌ ${err.message || 'Ocorreu um erro ao salvar o produto.'}`);
+    } finally {
+      setEnviando(false);
     }
   };
 
   return (
-    <div lang="pt-BR" style={{ padding: '24px', fontFamily: 'sans-serif', maxWidth: '900px', margin: '0 auto' }}>
-      <button
-        onClick={aoVoltar}
-        style={{ marginBottom: '20px', padding: '8px 16px', cursor: 'pointer', borderRadius: '6px', border: '1px solid #ccc' }}
-      >
-        ← Voltar ao Quadro de Pedidos
-      </button>
+    <div className="max-w-5xl mx-auto font-sans space-y-6">
+      
+      {/* ================= 1. FORMULÁRIO DE CADASTRO / EDIÇÃO ================= */}
+      <div className="bg-white p-6 rounded-2xl border border-gray-200/80 shadow-sm">
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+            {produtoEditandoId ? '✏️ Editar Produto' : '➕ Cadastrar Novo Produto'}
+          </h2>
 
-      <h2>🍔 Gestão do Cardápio</h2>
-
-      {/* Mensagem de Feedback */}
-      {mensagem.texto && (
-        <div
-          style={{
-            padding: '12px',
-            borderRadius: '6px',
-            marginBottom: '16px',
-            fontWeight: 'bold',
-            backgroundColor: mensagem.tipo === 'sucesso' ? '#d1fae5' : mensagem.tipo === 'erro' ? '#fee2e2' : '#e0f2fe',
-            color: mensagem.tipo === 'sucesso' ? '#065f46' : mensagem.tipo === 'erro' ? '#991b1b' : '#075985',
-          }}
-        >
-          {mensagem.texto}
+          {produtoEditandoId && (
+            <button
+              type="button"
+              onClick={limparFormulario}
+              className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold px-3 py-1.5 rounded-lg transition-all"
+            >
+              ✕ Cancelar Edição
+            </button>
+          )}
         </div>
-      )}
 
-      {/* Formulário de Cadastro / Edição */}
-      <form onSubmit={handleSubmit} style={{ background: '#f9fafb', padding: '20px', borderRadius: '8px', border: '1px solid #e5e7eb', marginBottom: '30px' }}>
-        <h3 style={{ marginTop: 0 }}>{idEdicao ? `Editar Item #${idEdicao}` : 'Cadastrar Novo Item'}</h3>
-
-        <div style={{ display: 'grid', gap: '16px', gridTemplateColumns: '1fr 1fr' }}>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Nome do Produto */}
           <div>
-            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '4px' }}>Nome do Produto*</label>
+            <label className="block text-xs font-bold text-gray-700 mb-1">
+              Nome do Produto*
+            </label>
             <input
               type="text"
               required
               placeholder="Ex: X-Salada Especial"
               value={nome}
               onChange={(e) => setNome(e.target.value)}
-              style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc', boxSizing: 'border-box' }}
+              className="w-full p-2.5 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-rose-500 focus:outline-none bg-gray-50/50"
             />
           </div>
 
-          <div>
-            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '4px' }}>Preço (R$)*</label>
-            <input
-              type="number"
-              step="0.01"
-              required
-              placeholder="Ex: 25.50"
-              value={preco}
-              onChange={(e) => setPreco(e.target.value)}
-              style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc', boxSizing: 'border-box' }}
-            />
-          </div>
-
-          <div>
-            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '4px' }}>Categoria*</label>
-            <select
-              value={categoriaId}
-              onChange={(e) => setCategoriaId(e.target.value)}
-              required
-              style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc', boxSizing: 'border-box' }}
-            >
-              {categorias.length === 0 ? (
-                <option value="">Carregando categorias...</option>
-              ) : (
-                categorias.map((cat) => (
+          {/* Categoria e Preço */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-gray-700 mb-1">
+                Categoria*
+              </label>
+              <select
+                value={categoriaId}
+                onChange={(e) => setCategoriaId(e.target.value)}
+                className="w-full p-2.5 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-rose-500 focus:outline-none bg-gray-50/50"
+              >
+                {categorias.map((cat) => (
                   <option key={cat.id} value={cat.id}>
                     {cat.nome}
                   </option>
-                ))
-              )}
-            </select>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-gray-700 mb-1">
+                Preço (R$)*
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                required
+                placeholder="0.00"
+                value={preco}
+                onChange={(e) => setPreco(e.target.value)}
+                className="w-full p-2.5 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-rose-500 focus:outline-none bg-gray-50/50"
+              />
+            </div>
           </div>
 
+          {/* Descrição */}
           <div>
-            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '4px' }}>URL da Imagem</label>
-            <input
-              type="text"
-              placeholder="https://exemplo.com/foto.jpg"
-              value={imagem}
-              onChange={(e) => setImagem(e.target.value)}
-              style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc', boxSizing: 'border-box' }}
+            <label className="block text-xs font-bold text-gray-700 mb-1">
+              Descrição
+            </label>
+            <textarea
+              rows="2"
+              placeholder="Ingredientes e detalhes do produto..."
+              value={descricao}
+              onChange={(e) => setDescricao(e.target.value)}
+              className="w-full p-2.5 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-rose-500 focus:outline-none bg-gray-50/50"
             />
           </div>
-        </div>
 
-        <div style={{ marginTop: '16px' }}>
-          <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '4px' }}>Descrição</label>
-          <textarea
-            rows="3"
-            placeholder="Ingredientes e detalhes do prato..."
-            value={descricao}
-            onChange={(e) => setDescricao(e.target.value)}
-            style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc', boxSizing: 'border-box' }}
-          />
-        </div>
+          {/* Mídia / Imagem */}
+          <div className="border border-gray-200 p-4 rounded-xl bg-gray-50/30 space-y-3">
+            <label className="block text-xs font-bold text-gray-700">
+              Imagem do Produto
+            </label>
 
-        <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
+            <div className="flex gap-4 text-xs font-semibold">
+              <label className="flex items-center gap-1.5 cursor-pointer">
+                <input
+                  type="radio"
+                  name="tipoImagem"
+                  checked={tipoImagem === 'arquivo'}
+                  onChange={() => setTipoImagem('arquivo')}
+                  className="accent-rose-600"
+                />
+                Enviar Arquivo
+              </label>
+
+              <label className="flex items-center gap-1.5 cursor-pointer">
+                <input
+                  type="radio"
+                  name="tipoImagem"
+                  checked={tipoImagem === 'url'}
+                  onChange={() => setTipoImagem('url')}
+                  className="accent-rose-600"
+                />
+                Link da Internet (URL)
+              </label>
+            </div>
+
+            {tipoImagem === 'arquivo' ? (
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleFileChange}
+                className="w-full text-xs text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-rose-50 file:text-rose-700 hover:file:bg-rose-100 cursor-pointer"
+              />
+            ) : (
+              <input
+                type="url"
+                placeholder="https://exemplo.com/imagem.jpg"
+                value={imagemUrl}
+                onChange={(e) => {
+                  setImagemUrl(e.target.value);
+                  setPrevia(e.target.value);
+                }}
+                className="w-full p-2.5 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-rose-500 focus:outline-none bg-white"
+              />
+            )}
+
+            {previa && (
+              <div className="pt-2 flex items-center gap-3">
+                <img
+                  src={previa}
+                  alt="Prévia"
+                  className="w-14 h-14 object-cover rounded-lg border border-gray-200"
+                />
+                <span className="text-xs text-gray-400">Prévia da imagem selecionada</span>
+              </div>
+            )}
+          </div>
+
           <button
             type="submit"
-            style={{
-              backgroundColor: idEdicao ? '#3b82f6' : '#10b981',
-              color: '#fff',
-              border: 'none',
-              padding: '10px 24px',
-              borderRadius: '6px',
-              fontWeight: 'bold',
-              cursor: 'pointer',
-              fontSize: '15px',
-            }}
+            disabled={enviando}
+            className={`w-full font-bold py-3 rounded-xl shadow-sm transition-all active:scale-98 text-sm text-white ${
+              produtoEditandoId 
+                ? 'bg-amber-600 hover:bg-amber-700' 
+                : 'bg-rose-600 hover:bg-rose-700'
+            }`}
           >
-            {idEdicao ? 'Atualizar Produto' : 'Salvar no Banco de Dados'}
+            {enviando 
+              ? 'Salvando...' 
+              : produtoEditandoId 
+                ? 'Salvar Alterações do Produto' 
+                : 'Salvar Novo Produto'
+            }
           </button>
+        </form>
+      </div>
 
-          {idEdicao && (
-            <button
-              type="button"
-              onClick={limparFormulario}
-              style={{ backgroundColor: '#6b7280', color: '#fff', border: 'none', padding: '10px 16px', borderRadius: '6px', cursor: 'pointer' }}
-            >
-              Cancelar Edição
-            </button>
-          )}
-        </div>
-      </form>
+      {/* ================= 2. PAINEL DE GESTÃO DE PRODUTOS ================= */}
+      <div className="bg-white p-6 rounded-2xl border border-gray-200/80 shadow-sm">
+        <h3 className="text-base font-bold text-gray-900 mb-4 flex items-center justify-between">
+          <span className="flex items-center gap-2">🛠️ Gestão de Itens do Cardápio</span>
+          <span className="text-xs bg-gray-100 text-gray-600 px-2.5 py-1 rounded-full font-semibold">
+            {produtos.length} {produtos.length === 1 ? 'item' : 'itens'}
+          </span>
+        </h3>
 
-      {/* Lista de Produtos */}
-      <h3>Produtos Cadastrados ({produtos.length})</h3>
+        {carregandoLista ? (
+          <p className="text-xs text-gray-400 text-center py-6">Carregando lista...</p>
+        ) : produtos.length === 0 ? (
+          <p className="text-xs text-gray-400 text-center py-6">Nenhum produto cadastrado ainda.</p>
+        ) : (
+          <div className="space-y-3">
+            {produtos.map((prod) => {
+              const estaDisponivel = prod.disponivel !== false && prod.disponivel !== 0;
 
-      {carregando ? (
-        <p>Carregando cardápio do banco de dados...</p>
-      ) : produtos.length === 0 ? (
-        <p style={{ color: '#6b7280' }}>Nenhum produto cadastrado no banco ainda.</p>
-      ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '16px' }}>
-          {produtos.map((prod) => {
-            const estaDisponivel = prod.disponivel !== false;
+              return (
+                <div
+                  key={prod.id}
+                  className={`p-3.5 rounded-xl border flex flex-col md:flex-row items-start md:items-center justify-between gap-3 transition-all ${
+                    estaDisponivel 
+                      ? 'bg-gray-50/80 border-gray-200/60 hover:bg-white hover:shadow-2xs' 
+                      : 'bg-gray-100/50 border-gray-200/40 opacity-75'
+                  }`}
+                >
+                  {/* Imagem + Detalhes */}
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <img
+                      src={prod.imagem_url || prod.imagem || 'https://via.placeholder.com/80'}
+                      alt={prod.nome}
+                      className="w-12 h-12 object-cover rounded-lg border border-gray-200 flex-shrink-0"
+                    />
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <h4 className="font-bold text-gray-900 text-sm truncate">
+                          {prod.nome}
+                        </h4>
+                        
+                        {/* Status Clicável (Badge Interativa) */}
+                        <button
+                          type="button"
+                          onClick={() => toggleDisponibilidade(prod)}
+                          title="Clique para alterar a disponibilidade"
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full border transition-all cursor-pointer hover:scale-105 active:scale-95 ${
+                            estaDisponivel 
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100' 
+                              : 'bg-rose-50 text-rose-600 border-rose-200 hover:bg-rose-100'
+                          }`}
+                        >
+                          {estaDisponivel ? '● Disponível' : '○ Indisponível'}
+                        </button>
+                      </div>
 
-            return (
-              <div
-                key={prod.id}
-                style={{
-                  border: '1px solid #e5e7eb',
-                  borderRadius: '8px',
-                  padding: '12px',
-                  background: '#fff',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justify: 'space-between',
-                  opacity: estaDisponivel ? 1 : 0.55,
-                }}
-              >
-                <div>
-                  <img
-                    src={prod.imagem_url || prod.imagem || 'https://via.placeholder.com/150'}
-                    alt={prod.nome}
-                    style={{ width: '100%', height: '120px', objectFit: 'cover', borderRadius: '6px' }}
-                  />
-                  <h4 style={{ margin: '8px 0 4px 0' }}>
-                    {prod.nome} {!estaDisponivel && <span style={{ color: '#dc2626', fontSize: '11px' }}>[PAUSADO]</span>}
-                  </h4>
-                  <p style={{ fontSize: '12px', color: '#6b7280', margin: '0 0 8px 0' }}>{prod.descricao}</p>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                    <span style={{ fontSize: '11px', background: '#f3f4f6', padding: '3px 8px', borderRadius: '4px', color: '#374151', fontWeight: 'bold' }}>
-                      ID #{prod.id}
-                    </span>
-                    <strong style={{ color: '#059669' }}>R$ {Number(prod.preco).toFixed(2)}</strong>
+                      <p className="text-[11px] text-gray-500 truncate max-w-md">
+                        {prod.descricao || 'Sem descrição'}
+                      </p>
+                    </div>
                   </div>
-                </div>
 
-                {/* Botões de Ação */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', borderTop: '1px solid #f3f4f6', paddingTop: '10px' }}>
-                  <button
-                    onClick={() => handleAlternarStatus(prod.id, estaDisponivel)}
-                    style={{
-                      width: '100%',
-                      padding: '6px',
-                      backgroundColor: estaDisponivel ? '#dcfce7' : '#fef3c7',
-                      color: estaDisponivel ? '#166534' : '#92400e',
-                      border: '1px solid ' + (estaDisponivel ? '#86efac' : '#fde047'),
-                      borderRadius: '4px',
-                      fontWeight: 'bold',
-                      cursor: 'pointer',
-                      fontSize: '12px',
-                    }}
-                  >
-                    {estaDisponivel ? '🟢 Disponível' : '🟡 Pausado'}
-                  </button>
+                  {/* Preço + Botões de Ação */}
+                  <div className="flex items-center justify-between md:justify-end gap-2 w-full md:w-auto pt-2 md:pt-0 border-t md:border-t-0 border-gray-200/60 flex-shrink-0">
+                    <strong className="text-emerald-600 text-sm font-extrabold mr-2">
+                      R$ {Number(prod.preco).toFixed(2)}
+                    </strong>
 
-                  <div style={{ display: 'flex', gap: '6px' }}>
+                    {/* Botão Editar */}
                     <button
-                      onClick={() => handleEditar(prod)}
-                      style={{ flex: 1, padding: '6px', backgroundColor: '#e0f2fe', color: '#0369a1', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px' }}
+                      type="button"
+                      onClick={() => iniciarEdicao(prod)}
+                      className="text-xs bg-white hover:bg-amber-50 text-amber-700 border border-gray-200 font-bold px-2.5 py-1.5 rounded-lg transition-all"
                     >
                       ✏️ Editar
                     </button>
+
+                    {/* Botão Excluir */}
                     <button
-                      onClick={() => handleExcluir(prod.id)}
-                      style={{ flex: 1, padding: '6px', backgroundColor: '#fee2e2', color: '#b91c1c', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px' }}
+                      type="button"
+                      onClick={() => excluirProduto(prod.id, prod.nome)}
+                      className="text-xs bg-white hover:bg-rose-50 text-rose-600 border border-gray-200 font-bold px-2.5 py-1.5 rounded-lg transition-all"
                     >
                       🗑️ Excluir
                     </button>
                   </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+              );
+            })}
+          </div>
+        )}
+      </div>
+
     </div>
   );
 }

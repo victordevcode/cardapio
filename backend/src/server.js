@@ -3,10 +3,37 @@ const cors = require('cors');
 const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Garante que a pasta "uploads" existe
+const uploadDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+// Servir a pasta "uploads" como estática para exibir as fotos no navegador
+app.use('/uploads', express.static(uploadDir));
+
+// Configuração do Multer para salvar os arquivos
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    const nomeArquivo = `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
+    cb(null, nomeArquivo);
+  },
+});
+
+const upload = multer({ storage });
 
 const JWT_SECRET = 'sua_chave_secreta_super_segura_123';
 
@@ -111,38 +138,76 @@ app.get('/api/produtos', async (req, res) => {
   }
 });
 
-// Criar produto
-app.post('/api/produtos', autenticarToken, async (req, res) => {
+// Criar produto (com suporte a upload de imagem)
+app.post('/api/produtos', autenticarToken, upload.single('imagem_arquivo'), async (req, res) => {
   const { nome, preco, descricao, categoria_id, imagem_url } = req.body;
   try {
+    let finalImagemUrl = imagem_url || '';
+
+    if (req.file) {
+      finalImagemUrl = `http://localhost:3000/uploads/${req.file.filename}`;
+    }
+
     const resultado = await pool.query(
       'INSERT INTO produtos (nome, preco, descricao, categoria_id, imagem_url, disponivel) VALUES ($1, $2, $3, $4, $5, TRUE) RETURNING *',
-      [nome, preco, descricao, categoria_id, imagem_url]
+      [nome, preco, descricao, categoria_id, finalImagemUrl]
     );
     res.status(201).json(resultado.rows[0]);
   } catch (err) {
+    console.error('Erro ao criar produto:', err);
     res.status(500).json({ mensagem: 'Erro ao criar produto' });
   }
 });
 
-// Editar produto completo
-app.put('/api/produtos/:id', autenticarToken, async (req, res) => {
+// Editar produto (com suporte a upload de imagem)
+app.put('/api/produtos/:id', autenticarToken, upload.single('imagem_arquivo'), async (req, res) => {
   const { id } = req.params;
   const { nome, preco, descricao, categoria_id, imagem_url, disponivel } = req.body;
+
   try {
+    // Buscar produto atual para manter a imagem caso não tenha sido enviada uma nova
+    const prodAtual = await pool.query('SELECT imagem_url, disponivel FROM produtos WHERE id = $1', [id]);
+    let finalImagemUrl = prodAtual.rows[0]?.imagem_url || '';
+    let isDisponivel = prodAtual.rows[0]?.disponivel ?? true;
+
+    if (req.file) {
+      finalImagemUrl = `http://localhost:3000/uploads/${req.file.filename}`;
+    } else if (imagem_url) {
+      finalImagemUrl = imagem_url;
+    }
+
+    if (disponivel !== undefined) {
+      isDisponivel = disponivel === 'true' || disponivel === true;
+    }
+
     const resultado = await pool.query(
       `UPDATE produtos 
        SET nome = $1, preco = $2, descricao = $3, categoria_id = $4, imagem_url = $5, disponivel = $6 
        WHERE id = $7 RETURNING *`,
-      [nome, preco, descricao, categoria_id, imagem_url, disponivel, id]
+      [nome, preco, descricao, categoria_id, finalImagemUrl, isDisponivel, id]
     );
     res.json(resultado.rows[0]);
   } catch (err) {
+    console.error('Erro ao atualizar produto:', err);
     res.status(500).json({ mensagem: 'Erro ao atualizar produto' });
   }
 });
 
-// Alternar rapidamente o status de disponível/pausado
+// Alternar status de disponibilidade
+app.patch('/api/produtos/:id/disponibilidade', autenticarToken, async (req, res) => {
+  const { id } = req.params;
+  const { disponivel } = req.body;
+  try {
+    const resultado = await pool.query(
+      'UPDATE produtos SET disponivel = $1 WHERE id = $2 RETURNING *',
+      [disponivel, id]
+    );
+    res.json(resultado.rows[0]);
+  } catch (err) {
+    res.status(500).json({ mensagem: 'Erro ao alterar disponibilidade do produto' });
+  }
+});
+
 app.patch('/api/produtos/:id/status', autenticarToken, async (req, res) => {
   const { id } = req.params;
   const { disponivel } = req.body;
@@ -174,7 +239,6 @@ app.delete('/api/produtos/:id', autenticarToken, async (req, res) => {
 app.post('/api/pedidos', async (req, res) => {
   const { cliente_nome, cliente_telefone, endereco, bairro, forma_pagamento, troco_para, observacoes, total, itens } = req.body;
   try {
-    // Insere o pedido
     const pedidoRes = await pool.query(
       `INSERT INTO pedidos (cliente_nome, cliente_telefone, endereco, bairro, forma_pagamento, troco_para, observacoes, total, status)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'Pendente') RETURNING *`,
@@ -182,7 +246,6 @@ app.post('/api/pedidos', async (req, res) => {
     );
     const pedidoId = pedidoRes.rows[0].id;
 
-    // Insere os itens
     for (const item of itens) {
       await pool.query(
         `INSERT INTO pedido_itens (pedido_id, produto_id, quantidade, preco_unitario, observacao)
@@ -203,7 +266,6 @@ app.get('/api/pedidos', autenticarToken, async (req, res) => {
   try {
     const pedidos = await pool.query('SELECT * FROM pedidos ORDER BY id DESC');
     
-    // Busca os itens de cada pedido
     for (let pedido of pedidos.rows) {
       const itens = await pool.query(
         `SELECT pi.*, p.nome as produto_nome 
