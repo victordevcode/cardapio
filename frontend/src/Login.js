@@ -1,71 +1,102 @@
 import React, { useState } from 'react';
 
-function Login({ onLoginSuccess }) {
+export default function Login({ aoLogar }) {
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
   const [erro, setErro] = useState('');
+  const [carregando, setCarregando] = useState(false);
 
-  const handleLogin = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
+    setErro('');
+    setCarregando(true);
 
-    // Validação simples (pode alterar conforme suas credenciais desejadas)
-    if (email === 'admin@restaurante.com' && senha === '123456') {
-      localStorage.setItem('admin_logado', 'true');
-      setErro('');
-      
-      // Verifica se a função existe antes de chamar
-      if (typeof onLoginSuccess === 'function') {
-        onLoginSuccess();
+    try {
+      const res = await fetch('http://localhost:3000/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, senha }),
+      });
+
+      const dados = await res.json();
+
+      if (!res.ok) {
+        throw new Error(dados.mensagem || 'Falha ao realizar login');
       }
-    } else {
-      setErro('E-mail ou senha incorretos.');
+
+      // Salva o token e dados do usuário no localStorage
+      localStorage.setItem('token', dados.token);
+      localStorage.setItem('usuario', JSON.stringify(dados.usuario));
+
+      aoLogar(dados.usuario);
+    } catch (err) {
+      setErro(err.message);
+    } finally {
+      setCarregando(false);
     }
   };
 
   return (
-    <div style={{ maxWidth: '400px', margin: '80px auto', padding: '24px', backgroundColor: '#fff', borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontFamily: 'sans-serif' }}>
-      <h2 style={{ textAlign: 'center', marginBottom: '20px' }}>🔒 Acesso Administrativo</h2>
-      
-      {erro && (
-        <div style={{ backgroundColor: '#fee2e2', color: '#991b1b', padding: '10px', borderRadius: '6px', marginBottom: '16px', fontSize: '14px', fontWeight: 'bold' }}>
-          {erro}
-        </div>
-      )}
+    <div style={{
+      display: 'flex', 
+      justifyContent: 'center', 
+      alignItems: 'center', 
+      minHeight: '100vh', 
+      backgroundColor: '#0f172a',
+      fontFamily: 'sans-serif'
+    }}>
+      <form onSubmit={handleSubmit} style={{
+        background: '#1e293b', 
+        padding: '32px', 
+        borderRadius: '16px', 
+        width: '100%', 
+        maxWidth: '380px',
+        boxShadow: '0 10px 25px rgba(0,0,0,0.3)',
+        color: '#fff'
+      }}>
+        <h2 style={{ textAlign: 'center', marginTop: 0, color: '#e11d48' }}>🔒 Painel Admin</h2>
+        <p style={{ textAlign: 'center', color: '#94a3b8', fontSize: '14px', marginBottom: '24px' }}>
+          Digite suas credenciais para acessar
+        </p>
 
-      <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-        <div>
-          <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '6px' }}>E-mail</label>
+        {erro && (
+          <div style={{ background: '#ef444422', border: '1px solid #ef4444', color: '#f87171', padding: '10px', borderRadius: '8px', marginBottom: '16px', fontSize: '14px' }}>
+            {erro}
+          </div>
+        )}
+
+        <div style={{ marginBottom: '16px' }}>
+          <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', color: '#cbd5e1' }}>E-mail</label>
           <input 
             type="email" 
             required 
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="admin@restaurante.com"
-            style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box' }}
+            value={email} 
+            onChange={(e) => setEmail(e.target.value)} 
+            placeholder="admin@hamburgueria.com"
+            style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #334155', background: '#0f172a', color: '#fff', boxSizing: 'border-box' }}
           />
         </div>
 
-        <div>
-          <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '6px' }}>Senha</label>
+        <div style={{ marginBottom: '24px' }}>
+          <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', color: '#cbd5e1' }}>Senha</label>
           <input 
             type="password" 
             required 
-            value={senha}
-            onChange={(e) => setSenha(e.target.value)}
-            placeholder="******"
-            style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #ccc', boxSizing: 'border-box' }}
+            value={senha} 
+            onChange={(e) => setSenha(e.target.value)} 
+            placeholder="••••••••"
+            style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #334155', background: '#0f172a', color: '#fff', boxSizing: 'border-box' }}
           />
         </div>
 
         <button 
           type="submit" 
-          style={{ backgroundColor: '#2563eb', color: '#fff', padding: '12px', border: 'none', borderRadius: '6px', fontSize: '16px', fontWeight: 'bold', cursor: 'pointer', marginTop: '8px' }}
+          disabled={carregando}
+          style={{ width: '100%', padding: '12px', background: '#e11d48', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '16px' }}
         >
-          Entrar no Painel
+          {carregando ? 'Entrando...' : 'Entrar'}
         </button>
       </form>
     </div>
   );
 }
-
-export default Login;
