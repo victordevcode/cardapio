@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { supabase } from './services/supabase';
 
 export default function CardapioCliente() {
   const [produtos, setProdutos] = useState([]);
@@ -6,41 +7,46 @@ export default function CardapioCliente() {
   const [carrinho, setCarrinho] = useState([]);
   const [carregando, setCarregando] = useState(true);
 
-  // Guardamos o ID das categorias que estão EXPANDIDAS (Mostrar mais)
+  // Guardamos o ID das categorias que estão EXPANDIDAS
   const [categoriasExpandidas, setCategoriasExpandidas] = useState({});
 
   // Estados do Formulário de Entrega
   const [nomeCliente, setNomeCliente] = useState('');
+  const [telefoneCliente, setTelefoneCliente] = useState(''); // Declarado para evitar o erro
   const [endereco, setEndereco] = useState('');
   const [formaPagamento, setFormaPagamento] = useState('Pix');
   const [observacoes, setObservacoes] = useState('');
 
-  // 1. Buscar produtos do banco
+  // 1. Buscar produtos do Supabase
   const buscarProdutos = useCallback(async () => {
     try {
-      const res = await fetch('http://localhost:3000/api/produtos');
-      if (!res.ok) throw new Error('Erro ao buscar produtos');
-      const dados = await res.json();
-      setProdutos(dados);
+      const { data, error } = await supabase
+        .from('produtos')
+        .select('*')
+        .eq('disponivel', true);
+
+      if (error) throw error;
+      setProdutos(data || []);
     } catch (err) {
-      console.error('Erro na requisição GET (produtos):', err);
+      console.error('Erro ao buscar produtos no Supabase:', err.message);
     } finally {
       setCarregando(false);
     }
   }, []);
 
-  // 2. Buscar categorias do banco e ordenar
+  // 2. Buscar categorias do Supabase e ordenar
   const buscarCategorias = useCallback(async () => {
     try {
-      const res = await fetch('http://localhost:3000/api/categorias');
-      if (!res.ok) throw new Error('Erro ao buscar categorias');
-      const dados = await res.json();
+      const { data, error } = await supabase
+        .from('categorias')
+        .select('*')
+        .eq('ativo', true);
 
-      // Ordem desejada para exibição
+      if (error) throw error;
+
       const ordemDesejada = ['lanches', 'porções', 'porcoes', 'bebidas'];
 
-      // Aplica a ordenação nas categorias
-      const categoriasOrdenadas = dados.sort((a, b) => {
+      const categoriasOrdenadas = (data || []).sort((a, b) => {
         const indexA = ordemDesejada.indexOf(a.nome.toLowerCase().trim());
         const indexB = ordemDesejada.indexOf(b.nome.toLowerCase().trim());
 
@@ -52,7 +58,7 @@ export default function CardapioCliente() {
 
       setCategorias(categoriasOrdenadas);
     } catch (err) {
-      console.error('Erro na requisição GET (categorias):', err);
+      console.error('Erro ao buscar categorias no Supabase:', err.message);
     }
   }, []);
 
@@ -61,7 +67,6 @@ export default function CardapioCliente() {
     buscarCategorias();
   }, [buscarProdutos, buscarCategorias]);
 
-  // Alternar o botão "Mostrar mais" / "Mostrar menos" de cada categoria
   const toggleExpandir = (categoriaId) => {
     setCategoriasExpandidas((prev) => ({
       ...prev,
@@ -69,7 +74,6 @@ export default function CardapioCliente() {
     }));
   };
 
-  // Funções do Carrinho
   const adicionarAoCarrinho = (produto) => {
     setCarrinho((prev) => {
       const itemExistente = prev.find((item) => item.id === produto.id);
@@ -99,7 +103,7 @@ export default function CardapioCliente() {
   };
 
   // Finalizar e Enviar para o WhatsApp
-  const finalizarPedido = (e) => {
+  const finalizarPedido = async (e) => {
     e.preventDefault();
 
     if (carrinho.length === 0) {
@@ -107,38 +111,99 @@ export default function CardapioCliente() {
       return;
     }
 
-    const numeroWhatsApp = '5511999999999'; // Insira seu número com DDD aqui
+    try {
+      console.log("1. Tentando salvar o pedido...");
 
-    let texto = `*🍔 NOVO PEDIDO DO CARDÁPIO*\n\n`;
-    texto += `*Cliente:* ${nomeCliente}\n`;
-    texto += `*Endereço:* ${endereco}\n`;
-    texto += `*Forma de Pagamento:* ${formaPagamento}\n`;
-    if (observacoes) texto += `*Obs:* ${observacoes}\n`;
-    
-    texto += `\n*ITENS DO PEDIDO:*\n`;
-    carrinho.forEach((item) => {
-      const subtotal = (Number(item.preco) * item.quantidade).toFixed(2);
-      texto += `- ${item.quantidade}x ${item.nome} (R$ ${subtotal})\n`;
-    });
+      // Step A: Inserir pedido principal
+      const { data: novoPedido, error: erroPedido } = await supabase
+        .from('pedidos')
+        .insert([
+          {
+            cliente_nome: nomeCliente,
+            cliente_telefone: telefoneCliente || 'Não informado',
+            endereco_entrega: endereco,
+            tipo_entrega: 'Entrega',
+            forma_pagamento: formaPagamento,
+            valor_total: calcularTotal(),
+            observacoes: observacoes,
+            status: 'pendente'
+          }
+        ])
+        .select()
+        .single();
 
-    texto += `\n*TOTAL: R$ ${calcularTotal().toFixed(2)}*`;
+      if (erroPedido) {
+        console.error("Erro ao inserir na tabela 'pedidos':", erroPedido);
+        alert(`Erro no banco (pedidos): ${erroPedido.message}`);
+        return;
+      }
 
-    const url = `https://wa.me/${numeroWhatsApp}?text=${encodeURIComponent(texto)}`;
-    window.open(url, '_blank');
+      console.log("2. Pedido criado com sucesso:", novoPedido);
+
+      // Step B: Inserir os itens do pedido
+      const itensFormatados = carrinho.map((item) => ({
+        pedido_id: novoPedido.id,
+        produto_id: item.id,
+        preco_unitario: item.preco,
+        quantidade: item.quantidade,
+        subtotal: Number(item.preco) * item.quantidade,
+        observacao_item: ''
+      }));
+
+      const { error: erroItens } = await supabase
+        .from('itens_pedido')
+        .insert(itensFormatados);
+
+      if (erroItens) {
+        console.error("Erro ao inserir na tabela 'itens_pedido':", erroItens);
+        alert(`Erro no banco (itens_pedido): ${erroItens.message}`);
+        return;
+      }
+
+      console.log("3. Itens inseridos com sucesso!");
+
+      // Step C: Enviar mensagem para o WhatsApp
+      const numeroWhatsApp = '5511999999999'; // Configure seu WhatsApp de atendimento aqui
+
+      let texto = `*🍔 NOVO PEDIDO (#${novoPedido.id})*\n\n`;
+      texto += `*Cliente:* ${nomeCliente}\n`;
+      if (telefoneCliente) texto += `*Telefone:* ${telefoneCliente}\n`;
+      texto += `*Endereço:* ${endereco}\n`;
+      texto += `*Forma de Pagamento:* ${formaPagamento}\n`;
+      if (observacoes) texto += `*Obs:* ${observacoes}\n`;
+      
+      texto += `\n*ITENS DO PEDIDO:*\n`;
+      carrinho.forEach((item) => {
+        const subtotal = (Number(item.preco) * item.quantidade).toFixed(2);
+        texto += `- ${item.quantidade}x ${item.nome} (R$ ${subtotal})\n`;
+      });
+
+      texto += `\n*TOTAL: R$ ${calcularTotal().toFixed(2)}*`;
+
+      const url = `https://wa.me/${numeroWhatsApp}?text=${encodeURIComponent(texto)}`;
+      window.open(url, '_blank');
+
+      // Limpa formulário
+      setCarrinho([]);
+      setNomeCliente('');
+      setTelefoneCliente('');
+      setEndereco('');
+      setObservacoes('');
+
+    } catch (err) {
+      console.error('Erro inesperado:', err);
+      alert('Erro inesperado ao processar o pedido.');
+    }
   };
 
-  // Limite padrão de itens antes de expandir (altere se quiser ver mais ou menos no estado inicial)
   const LIMITE_INICIAL = 4;
 
   return (
-    <div className="font-sans">
-      
-      {/* ================= GRID PRINCIPAL ================= */}
+    <div className="font-sans p-4 max-w-7xl mx-auto">
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
-        {/* Coluna 1 & 2: Categorias com Vitrine Interna de Produtos */}
+        {/* Coluna 1 & 2: Categorias e Produtos */}
         <div className="lg:col-span-2 space-y-6">
-          
           {carregando ? (
             <p className="text-center py-10 text-gray-500">Carregando cardápio...</p>
           ) : categorias.length === 0 ? (
@@ -147,14 +212,11 @@ export default function CardapioCliente() {
             </div>
           ) : (
             categorias.map((cat) => {
-              // Filtra os produtos pertencentes a esta categoria específica
               const prodsDaCategoria = produtos.filter(
                 (p) => String(p.categoria_id) === String(cat.id)
               );
 
               const estaExpandido = !!categoriasExpandidas[cat.id];
-
-              // Define se exibe todos os produtos ou só a lista reduzida
               const produtosExibidos = estaExpandido
                 ? prodsDaCategoria
                 : prodsDaCategoria.slice(0, LIMITE_INICIAL);
@@ -166,7 +228,6 @@ export default function CardapioCliente() {
                   key={cat.id} 
                   className="bg-white p-5 rounded-2xl border border-gray-200/80 shadow-sm transition-all"
                 >
-                  {/* Cabeçalho do Card da Categoria */}
                   <div className="flex items-center gap-3 mb-4">
                     <div className="w-10 h-10 bg-rose-50 rounded-xl flex items-center justify-center text-rose-600 text-lg flex-shrink-0">
                       🍔
@@ -181,7 +242,6 @@ export default function CardapioCliente() {
                     </div>
                   </div>
 
-                  {/* Lista de Produtos da Categoria */}
                   {prodsDaCategoria.length === 0 ? (
                     <p className="text-xs text-gray-400 italic py-2">
                       Sem produtos disponíveis nesta categoria.
@@ -249,7 +309,6 @@ export default function CardapioCliente() {
                         })}
                       </div>
 
-                      {/* Botão MOSTRAR MAIS / MOSTRAR MENOS */}
                       {temMaisItens && (
                         <div className="mt-4 text-center pt-2">
                           <button
@@ -271,7 +330,7 @@ export default function CardapioCliente() {
           )}
         </div>
 
-        {/* Coluna 3: Carrinho & Checkout (Fixo no canto direito) */}
+        {/* Coluna 3: Carrinho */}
         <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm h-fit sticky top-4">
           <h2 className="text-lg font-bold text-gray-900 pb-3 mb-4 border-b border-gray-100 flex items-center gap-2">
             🛒 Seu Pedido
@@ -283,7 +342,6 @@ export default function CardapioCliente() {
             </div>
           ) : (
             <>
-              {/* Lista dos Itens */}
               <div className="space-y-3 mb-4 max-h-60 overflow-y-auto pr-1">
                 {carrinho.map((item) => (
                   <div key={item.id} className="flex justify-between items-center text-sm">
@@ -300,13 +358,11 @@ export default function CardapioCliente() {
                 ))}
               </div>
 
-              {/* Totalizador */}
               <div className="border-t-2 border-dashed border-gray-200 pt-3 mb-5 flex justify-between items-center text-lg font-bold">
                 <span className="text-gray-800">Total:</span>
                 <span className="text-emerald-600 text-xl">R$ {calcularTotal().toFixed(2)}</span>
               </div>
 
-              {/* Form de Entrega */}
               <form onSubmit={finalizarPedido} className="space-y-3">
                 <input 
                   type="text" 
@@ -314,6 +370,13 @@ export default function CardapioCliente() {
                   required 
                   value={nomeCliente} 
                   onChange={(e) => setNomeCliente(e.target.value)}
+                  className="w-full p-2.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-rose-500 focus:outline-none"
+                />
+                <input 
+                  type="tel" 
+                  placeholder="Seu Telefone / WhatsApp" 
+                  value={telefoneCliente} 
+                  onChange={(e) => setTelefoneCliente(e.target.value)}
                   className="w-full p-2.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-rose-500 focus:outline-none"
                 />
                 <input 
