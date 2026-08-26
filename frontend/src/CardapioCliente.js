@@ -144,6 +144,7 @@ export default function CardapioCliente() {
       const itensFormatados = carrinho.map((item) => ({
         pedido_id: novoPedido.id,
         produto_id: item.id,
+        nome: item.nome,
         preco_unitario: item.preco,
         quantidade: item.quantidade,
         subtotal: Number(item.preco) * item.quantidade,
@@ -230,7 +231,7 @@ export default function CardapioCliente() {
                 >
                   <div className="flex items-center gap-3 mb-4">
                     <div className="w-10 h-10 bg-rose-50 rounded-xl flex items-center justify-center text-rose-600 text-lg flex-shrink-0">
-                      🍔
+                      
                     </div>
                     <div>
                       <h3 className="font-bold text-gray-900 text-lg leading-none">
