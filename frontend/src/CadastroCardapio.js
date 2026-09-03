@@ -86,34 +86,41 @@ export default function CadastroCardapio() {
     setTipoImagem('url');
     setArquivoImagem(null);
 
-    // Rola suavemente até o formulário no topo
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // Alternar Disponibilidade ao clicar na badge de status
+  // --- ALTERAR DISPONIBILIDADE (DISPONÍVEL / INDISPONÍVEL) ---
   const toggleDisponibilidade = async (prod) => {
-    const novaSituacao = prod.disponivel === false || prod.disponivel === 0 ? true : false;
+    // Define o novo status: se for true vira false, se for false vira true
+    const statusAtual = prod.disponivel !== false && prod.disponivel !== 0;
+    const novaSituacao = !statusAtual;
+
+    // 1. Atualização Otimista no React (interface responde na hora)
+    setProdutos((prev) =>
+      prev.map((p) => (p.id === prod.id ? { ...p, disponivel: novaSituacao } : p))
+    );
+
     try {
+      const token = sessionStorage.getItem('token') || localStorage.getItem('token');
       const res = await fetch(`http://localhost:3000/api/produtos/${prod.id}/disponibilidade`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({ disponivel: novaSituacao }),
       });
 
       if (!res.ok) {
-        // Fallback para atualização local
-        setProdutos((prev) =>
-          prev.map((p) => (p.id === prod.id ? { ...p, disponivel: novaSituacao } : p))
-        );
-      } else {
-        buscarProdutos();
+        throw new Error('Falha ao atualizar no servidor');
       }
     } catch (err) {
       console.error('Erro ao alterar disponibilidade:', err);
-      // Atualização otimista
+      // Reverte em caso de erro na requisição
       setProdutos((prev) =>
-        prev.map((p) => (p.id === prod.id ? { ...p, disponivel: novaSituacao } : p))
+        prev.map((p) => (p.id === prod.id ? { ...p, disponivel: statusAtual } : p))
       );
+      alert('Não foi possível alterar a disponibilidade no servidor.');
     }
   };
 
@@ -122,8 +129,12 @@ export default function CadastroCardapio() {
     if (!window.confirm(`Tem certeza que deseja excluir "${nomeProduto}"?`)) return;
 
     try {
+      const token = sessionStorage.getItem('token') || localStorage.getItem('token');
       const res = await fetch(`http://localhost:3000/api/produtos/${id}`, {
         method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
       });
       if (!res.ok) throw new Error('Erro ao excluir produto');
 
@@ -158,17 +169,14 @@ export default function CadastroCardapio() {
         : 'http://localhost:3000/api/produtos';
 
       const method = produtoEditandoId ? 'PUT' : 'POST';
-
-      // PEGA O TOKEN DO SESSIONSTORAGE (E LOCALSTORAGE COMO FALLBACK)
       const token = sessionStorage.getItem('token') || localStorage.getItem('token');
 
       const res = await fetch(url, {
         method: method,
         headers: {
-          // Envia o Token de Autenticação para liberar a requisição no Backend!
           'Authorization': `Bearer ${token}` 
         },
-        body: formData, // Quando enviamos FormData, não colocamos 'Content-Type', o navegador define sozinho
+        body: formData,
       });
 
       if (!res.ok) {
@@ -197,7 +205,7 @@ export default function CadastroCardapio() {
   return (
     <div className="max-w-5xl mx-auto font-sans space-y-6">
       
-      {/* ================= 1. FORMULÁRIO DE CADASTRO / EDIÇÃO ================= */}
+      {/* 1. FORMULÁRIO DE CADASTRO / EDIÇÃO */}
       <div className="bg-white p-6 rounded-2xl border border-gray-200/80 shadow-sm">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
@@ -216,7 +224,6 @@ export default function CadastroCardapio() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Nome do Produto */}
           <div>
             <label className="block text-xs font-bold text-gray-700 mb-1">
               Nome do Produto*
@@ -231,7 +238,6 @@ export default function CadastroCardapio() {
             />
           </div>
 
-          {/* Categoria e Preço */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-bold text-gray-700 mb-1">
@@ -266,7 +272,6 @@ export default function CadastroCardapio() {
             </div>
           </div>
 
-          {/* Descrição */}
           <div>
             <label className="block text-xs font-bold text-gray-700 mb-1">
               Descrição
@@ -280,7 +285,6 @@ export default function CadastroCardapio() {
             />
           </div>
 
-          {/* Mídia / Imagem */}
           <div className="border border-gray-200 p-4 rounded-xl bg-gray-50/30 space-y-3">
             <label className="block text-xs font-bold text-gray-700">
               Imagem do Produto
@@ -361,7 +365,7 @@ export default function CadastroCardapio() {
         </form>
       </div>
 
-      {/* ================= 2. PAINEL DE GESTÃO DE PRODUTOS ================= */}
+      {/* 2. PAINEL DE GESTÃO DE PRODUTOS */}
       <div className="bg-white p-6 rounded-2xl border border-gray-200/80 shadow-sm">
         <h3 className="text-base font-bold text-gray-900 mb-4 flex items-center justify-between">
           <span className="flex items-center gap-2">🛠️ Gestão de Itens do Cardápio</span>
@@ -384,8 +388,8 @@ export default function CadastroCardapio() {
                   key={prod.id}
                   className={`p-3.5 rounded-xl border flex flex-col md:flex-row items-start md:items-center justify-between gap-3 transition-all ${
                     estaDisponivel 
-                      ? 'bg-gray-50/80 border-gray-200/60 hover:bg-white hover:shadow-2xs' 
-                      : 'bg-gray-100/50 border-gray-200/40 opacity-75'
+                      ? 'bg-gray-50/80 border-gray-200/60 hover:bg-white' 
+                      : 'bg-red-50/40 border-red-200/60 opacity-80'
                   }`}
                 >
                   {/* Imagem + Detalhes */}
@@ -396,27 +400,27 @@ export default function CadastroCardapio() {
                       className="w-12 h-12 object-cover rounded-lg border border-gray-200 flex-shrink-0"
                     />
                     <div className="min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <h4 className="font-bold text-gray-900 text-sm truncate">
                           {prod.nome}
                         </h4>
                         
-                        {/* Status Clicável (Badge Interativa) */}
+                        {/* BOTÃO DISPONÍVEL / INDISPONÍVEL */}
                         <button
                           type="button"
                           onClick={() => toggleDisponibilidade(prod)}
-                          title="Clique para alterar a disponibilidade"
-                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full border transition-all cursor-pointer hover:scale-105 active:scale-95 ${
+                          title="Clique para alternar o status"
+                          className={`text-xs font-bold px-3 py-1 rounded-lg border transition-all cursor-pointer shadow-xs active:scale-95 ${
                             estaDisponivel 
-                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100' 
-                              : 'bg-rose-50 text-rose-600 border-rose-200 hover:bg-rose-100'
+                              ? 'bg-emerald-100 text-emerald-800 border-emerald-300 hover:bg-emerald-200' 
+                              : 'bg-red-100 text-red-800 border-red-300 hover:bg-red-200'
                           }`}
                         >
-                          {estaDisponivel ? '● Disponível' : '○ Indisponível'}
+                          {estaDisponivel ? '🟢 Disponível' : '🔴 Indisponível'}
                         </button>
                       </div>
 
-                      <p className="text-[11px] text-gray-500 truncate max-w-md">
+                      <p className="text-[11px] text-gray-500 truncate max-w-md mt-0.5">
                         {prod.descricao || 'Sem descrição'}
                       </p>
                     </div>
@@ -428,7 +432,6 @@ export default function CadastroCardapio() {
                       R$ {Number(prod.preco).toFixed(2)}
                     </strong>
 
-                    {/* Botão Editar */}
                     <button
                       type="button"
                       onClick={() => iniciarEdicao(prod)}
@@ -437,7 +440,6 @@ export default function CadastroCardapio() {
                       ✏️ Editar
                     </button>
 
-                    {/* Botão Excluir */}
                     <button
                       type="button"
                       onClick={() => excluirProduto(prod.id, prod.nome)}

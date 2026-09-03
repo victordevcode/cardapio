@@ -38,11 +38,12 @@ const upload = multer({ storage });
 const JWT_SECRET = 'sua_chave_secreta_super_segura_123';
 
 const pool = new Pool({
-  user: 'postgres',
-  host: '127.0.0.1',
-  database: 'cardapio',
-  password: 'wildfire',
-  port: 5433,
+  user: 'postgres.kibexqwtcypwaldgsnba',
+  host: 'aws-0-us-east-1.pooler.supabase.com',
+  database: 'postgres',
+  password: '3XGZsarwC98OeGSY',
+  port: 6543,
+
 });
 
 // Middleware de Autenticação
@@ -56,6 +57,23 @@ const autenticarToken = (req, res, next) => {
     if (err) return res.status(403).json({ mensagem: 'Token inválido ou expirado.' });
     req.usuario = usuario;
     next();
+  });
+  console.log('====================================');
+console.log('BACKEND CONECTANDO NO SUPABASE');
+console.log('HOST:', pool.options.host);
+console.log('PORT:', pool.options.port);
+console.log('USER:', pool.options.user);
+console.log('DATABASE:', pool.options.database);
+console.log('PASSWORD TYPE:', typeof pool.options.password);
+console.log('====================================');
+
+pool.query('SELECT NOW()')
+  .then(() => {
+    console.log('✅ CONEXÃO COM SUPABASE FUNCIONANDO!');
+  })
+  .catch((err) => {
+    console.error('❌ ERRO NA CONEXÃO COM SUPABASE:');
+    console.error(err);
   });
 };
 
@@ -165,7 +183,6 @@ app.put('/api/produtos/:id', autenticarToken, upload.single('imagem_arquivo'), a
   const { nome, preco, descricao, categoria_id, imagem_url, disponivel } = req.body;
 
   try {
-    // Buscar produto atual para manter a imagem caso não tenha sido enviada uma nova
     const prodAtual = await pool.query('SELECT imagem_url, disponivel FROM produtos WHERE id = $1', [id]);
     let finalImagemUrl = prodAtual.rows[0]?.imagem_url || '';
     let isDisponivel = prodAtual.rows[0]?.disponivel ?? true;
@@ -237,26 +254,83 @@ app.delete('/api/produtos/:id', autenticarToken, async (req, res) => {
 
 // Criar pedido (Cliente envia)
 app.post('/api/pedidos', async (req, res) => {
-  const { cliente_nome, cliente_telefone, endereco, bairro, forma_pagamento, troco_para, observacoes, total, itens } = req.body;
-  try {
-    const pedidoRes = await pool.query(
-      `INSERT INTO pedidos (cliente_nome, cliente_telefone, endereco, bairro, forma_pagamento, troco_para, observacoes, total, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'Pendente') RETURNING *`,
-      [cliente_nome, cliente_telefone, endereco, bairro, forma_pagamento, troco_para, observacoes, total]
-    );
-    const pedidoId = pedidoRes.rows[0].id;
+  const {
+    cliente_nome,
+    cliente_telefone,
+    endereco,             // Mapeado para 'endereco_entrega'
+    tipo_entrega,
+    forma_pagamento,
+    troco_para,
+    bandeira_cartao,       // Mapeado para 'cartao_modalidade'
+    observacoes_gerais,   // Mapeado para 'observacoes'
+    total,                // Mapeado para 'valor_total'
+    status,
+    itens
+  } = req.body;
 
-    for (const item of itens) {
-      await pool.query(
-        `INSERT INTO pedido_itens (pedido_id, produto_id, quantidade, preco_unitario, observacao)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [pedidoId, item.produto_id, item.quantidade, item.preco_unitario, item.observacao || '']
-      );
+  try {
+    // Consolida observações gerais com informação de troco caso exista
+    let obsConsolidadas = observacoes_gerais || req.body.observacoes || '';
+    if (forma_pagamento === 'Dinheiro' && trocoPara) {
+      obsConsolidadas = `Troco para R$ ${trocoPara}. ${obsConsolidadas}`.trim();
     }
 
-    res.status(201).json({ mensagem: 'Pedido criado com sucesso!', pedido_id: pedidoId });
+    const queryPedido = `
+      INSERT INTO pedidos (
+        cliente_nome,
+        cliente_telefone,
+        endereco_entrega,
+        tipo_entrega,
+        forma_pagamento,
+        valor_total,
+        status,
+        observacoes,
+        cartao_modalidade,
+        cartao_tipo,
+        pagamento_status,
+        criado_em
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
+      RETURNING id;
+    `;
+
+    const valuesPedido = [
+      cliente_nome,
+      cliente_telefone || null,
+      endereco || req.body.endereco_entrega,
+      tipo_entrega || 'delivery',
+      forma_pagamento,
+      total || req.body.valor_total,
+      status || 'pendente',
+      obsConsolidadas || null,
+      bandeira_cartao || null,
+      forma_pagamento && forma_pagamento.includes('Cartão') ? forma_pagamento : null,
+      'pendente'
+    ];
+
+    const pedidoRes = await pool.query(queryPedido, valuesPedido);
+    const pedidoId = pedidoRes.rows[0].id;
+
+    // Salva os itens do pedido na tabela auxiliar (se informados)
+    if (itens && Array.isArray(itens)) {
+      for (const item of itens) {
+        await pool.query(
+          `INSERT INTO pedido_itens (pedido_id, produto_id, quantidade, preco_unitario, observacao)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [
+            pedidoId,
+            item.produto_id || item.produtoId,
+            item.quantidade,
+            item.preco_unitario || item.preco,
+            item.observacao || ''
+          ]
+        );
+      }
+    }
+
+    res.status(201).json({ mensagem: 'Pedido criado com sucesso!', id: pedidoId, pedido_id: pedidoId });
   } catch (err) {
-    console.error(err);
+    console.error('Erro ao criar pedido:', err);
     res.status(500).json({ mensagem: 'Erro ao criar pedido' });
   }
 });
@@ -284,7 +358,7 @@ app.get('/api/pedidos', autenticarToken, async (req, res) => {
   }
 });
 
-// Atualizar status do pedido
+// Atualizar status do pedido (Kanban)
 app.patch('/api/pedidos/:id/status', autenticarToken, async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;

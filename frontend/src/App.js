@@ -8,6 +8,8 @@ import CardapioCliente from './CardapioCliente';
 export default function App() {
   const [autenticado, setAutenticado] = useState(false);
   const [telaAtual, setTelaAtual] = useState('listagem');
+  // Estado para controlar a visibilidade do menu
+  const [menuVisivel, setMenuVisivel] = useState(false);
 
   useEffect(() => {
     const token = sessionStorage.getItem('token');
@@ -33,15 +35,18 @@ export default function App() {
   return (
     <div className="min-h-screen bg-gray-50 p-4 font-sans">
       <div className="max-w-6xl mx-auto space-y-4">
-        
+
         {/* ================= 1. CABEÇALHO FIXO COM A LOGO ================= */}
         <header className="bg-gradient-to-r from-slate-900 to-slate-800 rounded-2xl text-white p-4 shadow-md flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-4">
-            <img 
-              src="logo_ju.PNG" 
-              alt="Logo do Lanche" 
-              onError={(e) => { e.target.src = 'https://via.placeholder.com/100'; }} 
-              className="w-16 h-16 object-cover rounded-full border-2 border-rose-500 shadow-md flex-shrink-0"
+            {/* Adicionado o onClick e cursor-pointer na imagem */}
+            <img
+              src="logo_ju.PNG"
+              alt="Logo do Lanche"
+              onClick={() => setMenuVisivel(!menuVisivel)}
+              onError={(e) => { e.target.src = 'https://via.placeholder.com/100'; }}
+              className="w-16 h-16 object-cover rounded-full border-2 border-rose-500 shadow-md flex-shrink-0 cursor-pointer hover:opacity-85 active:scale-95 transition-all"
+              title="Clique para abrir/fechar o menu"
             />
             <div className="text-center sm:text-left">
               <h1 className="text-2xl font-extrabold tracking-tight flex items-center justify-center sm:justify-start gap-2">
@@ -61,55 +66,57 @@ export default function App() {
           </button>
         </header>
 
-        {/* ================= 2. BOTÕES DE NAVEGAÇÃO (ABAIXO DO BANNER) ================= */}
-        <nav className="bg-white p-2.5 rounded-xl shadow-sm border border-gray-200/80 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex flex-wrap gap-2">
+        {/* ================= 2. BOTÕES DE NAVEGAÇÃO (RENDERIZAÇÃO CONDICIONAL) ================= */}
+        {menuVisivel && (
+          <nav className="bg-white p-2.5 rounded-xl shadow-sm border border-gray-200/80 flex flex-wrap items-center justify-between gap-2 animate-fade-in">
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => setTelaAtual('listagem')}
+                className={`px-4 py-2 text-sm font-bold rounded-lg transition-all ${
+                  telaAtual === 'listagem'
+                    ? 'bg-rose-600 text-white shadow-sm'
+                    : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-200/60'
+                }`}
+              >
+                📋 Produtos
+              </button>
+
+              <button
+                onClick={() => setTelaAtual('cadastro')}
+                className={`px-4 py-2 text-sm font-bold rounded-lg transition-all ${
+                  telaAtual === 'cadastro'
+                    ? 'bg-rose-600 text-white shadow-sm'
+                    : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-200/60'
+                }`}
+              >
+                ➕ Novo
+              </button>
+
+              <button
+                onClick={() => setTelaAtual('kanban')}
+                className={`px-4 py-2 text-sm font-bold rounded-lg transition-all ${
+                  telaAtual === 'kanban'
+                    ? 'bg-rose-600 text-white shadow-sm'
+                    : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-200/60'
+                }`}
+              >
+                📊 Cozinha
+              </button>
+            </div>
+
+            {/* Botão de abrir/ver o cardápio */}
             <button
-              onClick={() => setTelaAtual('listagem')}
+              onClick={() => setTelaAtual('cardapio')}
               className={`px-4 py-2 text-sm font-bold rounded-lg transition-all ${
-                telaAtual === 'listagem'
-                  ? 'bg-rose-600 text-white shadow-sm'
-                  : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-200/60'
+                telaAtual === 'cardapio'
+                  ? 'bg-emerald-500 text-white shadow-sm'
+                  : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200'
               }`}
             >
-              📋 Produtos
+              📱
             </button>
-
-            <button
-              onClick={() => setTelaAtual('cadastro')}
-              className={`px-4 py-2 text-sm font-bold rounded-lg transition-all ${
-                telaAtual === 'cadastro'
-                  ? 'bg-rose-600 text-white shadow-sm'
-                  : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-200/60'
-              }`}
-            >
-              ➕ Novo
-            </button>
-
-            <button
-              onClick={() => setTelaAtual('kanban')}
-              className={`px-4 py-2 text-sm font-bold rounded-lg transition-all ${
-                telaAtual === 'kanban'
-                  ? 'bg-rose-600 text-white shadow-sm'
-                  : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-200/60'
-              }`}
-            >
-              📊 Cozinha
-            </button>
-          </div>
-
-          {/* Botão de abrir/ver o cardápio */}
-          <button
-            onClick={() => setTelaAtual('cardapio')}
-            className={`px-4 py-2 text-sm font-bold rounded-lg transition-all ${
-              telaAtual === 'cardapio'
-                ? 'bg-emerald-500 text-white shadow-sm'
-                : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200'
-            }`}
-          >
-            📱 
-          </button>
-        </nav>
+          </nav>
+        )}
 
         {/* ================= 3. CONTEÚDO DA TELA ATIVA ================= */}
         <main className="pt-2">
