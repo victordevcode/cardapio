@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
@@ -35,18 +36,23 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
-const JWT_SECRET = 'sua_chave_secreta_super_segura_123';
+const JWT_SECRET = process.env.JWT_SECRET || 'sua_chave_secreta_super_segura_123';
 
+// ==================== CONFIGURAÇÃO DO BANCO (SUPABASE) ====================
 const pool = new Pool({
-  user: 'postgres.kibexqwtcypwaldgsnba',
-  host: 'aws-0-us-east-1.pooler.supabase.com',
-  database: 'postgres',
-  password: '3XGZsarwC98OeGSY',
-  port: 6543,
-
+  user: process.env.DB_USER,
+  host: process.env.DB_HOST,
+  database: process.env.DB_NAME,
+  password: process.env.DB_PASSWORD,
+  port: Number(process.env.DB_PORT),
 });
 
-// Middleware de Autenticação
+// Trata erros de conexão sem derrubar a aplicação
+pool.on('error', (err) => {
+  console.error('Erro de conexão no banco:', err.message);
+});
+
+// ==================== MIDDLEWARE DE AUTENTICAÇÃO ====================
 const autenticarToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
@@ -57,23 +63,6 @@ const autenticarToken = (req, res, next) => {
     if (err) return res.status(403).json({ mensagem: 'Token inválido ou expirado.' });
     req.usuario = usuario;
     next();
-  });
-  console.log('====================================');
-console.log('BACKEND CONECTANDO NO SUPABASE');
-console.log('HOST:', pool.options.host);
-console.log('PORT:', pool.options.port);
-console.log('USER:', pool.options.user);
-console.log('DATABASE:', pool.options.database);
-console.log('PASSWORD TYPE:', typeof pool.options.password);
-console.log('====================================');
-
-pool.query('SELECT NOW()')
-  .then(() => {
-    console.log('✅ CONEXÃO COM SUPABASE FUNCIONANDO!');
-  })
-  .catch((err) => {
-    console.error('❌ ERRO NA CONEXÃO COM SUPABASE:');
-    console.error(err);
   });
 };
 
@@ -141,13 +130,12 @@ app.post('/api/categorias', autenticarToken, async (req, res) => {
 
 // ==================== PRODUTOS ====================
 
-// Listar todos os produtos (público)
 app.get('/api/produtos', async (req, res) => {
   try {
     const resultado = await pool.query(`
-      SELECT p.*, c.nome as categoria_nome 
-      FROM produtos p 
-      LEFT JOIN categorias c ON p.categoria_id = c.id 
+      SELECT p.*, c.nome as categoria_nome
+      FROM produtos p
+      LEFT JOIN categorias c ON p.categoria_id = c.id
       ORDER BY p.id DESC
     `);
     res.json(resultado.rows);
@@ -156,7 +144,6 @@ app.get('/api/produtos', async (req, res) => {
   }
 });
 
-// Criar produto (com suporte a upload de imagem)
 app.post('/api/produtos', autenticarToken, upload.single('imagem_arquivo'), async (req, res) => {
   const { nome, preco, descricao, categoria_id, imagem_url } = req.body;
   try {
@@ -177,7 +164,6 @@ app.post('/api/produtos', autenticarToken, upload.single('imagem_arquivo'), asyn
   }
 });
 
-// Editar produto (com suporte a upload de imagem)
 app.put('/api/produtos/:id', autenticarToken, upload.single('imagem_arquivo'), async (req, res) => {
   const { id } = req.params;
   const { nome, preco, descricao, categoria_id, imagem_url, disponivel } = req.body;
@@ -198,8 +184,8 @@ app.put('/api/produtos/:id', autenticarToken, upload.single('imagem_arquivo'), a
     }
 
     const resultado = await pool.query(
-      `UPDATE produtos 
-       SET nome = $1, preco = $2, descricao = $3, categoria_id = $4, imagem_url = $5, disponivel = $6 
+      `UPDATE produtos
+       SET nome = $1, preco = $2, descricao = $3, categoria_id = $4, imagem_url = $5, disponivel = $6
        WHERE id = $7 RETURNING *`,
       [nome, preco, descricao, categoria_id, finalImagemUrl, isDisponivel, id]
     );
@@ -210,7 +196,6 @@ app.put('/api/produtos/:id', autenticarToken, upload.single('imagem_arquivo'), a
   }
 });
 
-// Alternar status de disponibilidade
 app.patch('/api/produtos/:id/disponibilidade', autenticarToken, async (req, res) => {
   const { id } = req.params;
   const { disponivel } = req.body;
@@ -239,7 +224,6 @@ app.patch('/api/produtos/:id/status', autenticarToken, async (req, res) => {
   }
 });
 
-// Excluir produto
 app.delete('/api/produtos/:id', autenticarToken, async (req, res) => {
   const { id } = req.params;
   try {
@@ -249,116 +233,114 @@ app.delete('/api/produtos/:id', autenticarToken, async (req, res) => {
     res.status(500).json({ mensagem: 'Erro ao excluir produto' });
   }
 });
+// ==================== CLIENTES ====================
 
-// ==================== PEDIDOS (PAINEL DA COZINHA) ====================
-
-// Criar pedido (Cliente envia)
-app.post('/api/pedidos', async (req, res) => {
-  const {
-    cliente_nome,
-    cliente_telefone,
-    endereco,             // Mapeado para 'endereco_entrega'
-    tipo_entrega,
-    forma_pagamento,
-    troco_para,
-    bandeira_cartao,       // Mapeado para 'cartao_modalidade'
-    observacoes_gerais,   // Mapeado para 'observacoes'
-    total,                // Mapeado para 'valor_total'
-    status,
-    itens
-  } = req.body;
-
+// Rota para buscar os dados do cliente pelo telefone ao digitar no CheckoutModal
+app.get('/api/clientes/:telefone', async (req, res) => {
+  const { telefone } = req.params;
   try {
-    // Consolida observações gerais com informação de troco caso exista
-    let obsConsolidadas = observacoes_gerais || req.body.observacoes || '';
-    if (forma_pagamento === 'Dinheiro' && trocoPara) {
-      obsConsolidadas = `Troco para R$ ${trocoPara}. ${obsConsolidadas}`.trim();
+    const resultado = await pool.query(
+      'SELECT * FROM clientes WHERE telefone = $1',
+      [telefone]
+    );
+
+    if (resultado.rows.length === 0) {
+      return res.status(404).json({ mensagem: 'Cliente não encontrado' });
     }
 
-    const queryPedido = `
-      INSERT INTO pedidos (
+    res.json(resultado.rows[0]);
+  } catch (err) {
+    console.error('Erro ao buscar cliente:', err);
+    res.status(500).json({ mensagem: 'Erro ao buscar cliente' });
+  }
+});
+// ==================== PEDIDOS (PAINEL DA COZINHA) ====================
+
+app.post('/api/pedidos', async (req, res) => {
+  // Trata caso os dados venham em req.body.cliente ou diretamente em req.body
+  const clienteData = req.body.cliente || {};
+
+  const cliente_nome = req.body.cliente_nome || clienteData.nome || req.body.nome;
+  const cliente_telefone = req.body.cliente_telefone || clienteData.telefone || req.body.telefone;
+  
+  // Monta o endereço de entrega completo
+  const enderecoRaw = req.body.endereco_entrega || req.body.endereco || clienteData.endereco || '';
+  const bairroRaw = req.body.bairro || clienteData.bairro || '';
+  const complementoRaw = req.body.complemento || clienteData.complemento || '';
+  
+  const endereco_entrega = [enderecoRaw, bairroRaw, complementoRaw]
+    .filter(Boolean)
+    .join(', ');
+
+  const tipo_entrega = req.body.tipo_entrega || 'delivery';
+  const forma_pagamento = req.body.forma_pagamento || 'pix';
+  const valor_total = req.body.valor_total || req.body.total || 0;
+  const observacoes = req.body.observacoes || '';
+  const cliente_id = req.body.cliente_id || clienteData.id || null;
+
+  // Validação preventiva
+  if (!cliente_nome || !cliente_nome.trim()) {
+    return res.status(400).json({ mensagem: 'O campo cliente_nome é obrigatório.' });
+  }
+
+  try {
+    // Insere o pedido usando a estrutura exata da sua tabela no banco
+    const pedidoRes = await pool.query(
+      `INSERT INTO pedidos (
+        cliente_nome, 
+        cliente_telefone, 
+        endereco_entrega, 
+        tipo_entrega, 
+        forma_pagamento, 
+        valor_total, 
+        status, 
+        observacoes, 
+        cliente_id
+      ) VALUES ($1, $2, $3, $4, $5, $6, 'Pendente', $7, $8) 
+      RETURNING *`,
+      [
         cliente_nome,
-        cliente_telefone,
+        cliente_telefone || '',
         endereco_entrega,
         tipo_entrega,
         forma_pagamento,
         valor_total,
-        status,
         observacoes,
-        cartao_modalidade,
-        cartao_tipo,
-        pagamento_status,
-        criado_em
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
-      RETURNING id;
-    `;
+        cliente_id
+      ]
+    );
 
-    const valuesPedido = [
-      cliente_nome,
-      cliente_telefone || null,
-      endereco || req.body.endereco_entrega,
-      tipo_entrega || 'delivery',
-      forma_pagamento,
-      total || req.body.valor_total,
-      status || 'pendente',
-      obsConsolidadas || null,
-      bandeira_cartao || null,
-      forma_pagamento && forma_pagamento.includes('Cartão') ? forma_pagamento : null,
-      'pendente'
-    ];
-
-    const pedidoRes = await pool.query(queryPedido, valuesPedido);
     const pedidoId = pedidoRes.rows[0].id;
+    const itens = req.body.itens || [];
 
-    // Salva os itens do pedido na tabela auxiliar (se informados)
-    if (itens && Array.isArray(itens)) {
+    // Insere os itens do pedido (se a tabela pedido_itens existir)
+    if (Array.isArray(itens) && itens.length > 0) {
       for (const item of itens) {
         await pool.query(
-          `INSERT INTO pedido_itens (pedido_id, produto_id, quantidade, preco_unitario, observacao)
-           VALUES ($1, $2, $3, $4, $5)`,
+          `INSERT INTO pedido_itens (pedido_id, produto_id, quantidade, preco_unitario, descricao_item, observacao)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
           [
             pedidoId,
-            item.produto_id || item.produtoId,
-            item.quantidade,
-            item.preco_unitario || item.preco,
+            item.produto_id || item.produtoId || item.id,
+            item.quantidade || 1,
+            item.preco_unitario || item.preco || 0,
+            item.descricao_item || item.descricao || item.nome || '',
             item.observacao || ''
           ]
-        );
+        ).catch(err => console.log('Aviso ao salvar item:', err.message));
       }
     }
 
-    res.status(201).json({ mensagem: 'Pedido criado com sucesso!', id: pedidoId, pedido_id: pedidoId });
+    res.status(201).json({ 
+      mensagem: 'Pedido criado com sucesso!', 
+      pedido: pedidoRes.rows[0] 
+    });
+
   } catch (err) {
     console.error('Erro ao criar pedido:', err);
-    res.status(500).json({ mensagem: 'Erro ao criar pedido' });
+    res.status(500).json({ mensagem: 'Erro interno ao criar pedido: ' + err.message });
   }
 });
-
-// Listar pedidos (Admin/Cozinha)
-app.get('/api/pedidos', autenticarToken, async (req, res) => {
-  try {
-    const pedidos = await pool.query('SELECT * FROM pedidos ORDER BY id DESC');
-    
-    for (let pedido of pedidos.rows) {
-      const itens = await pool.query(
-        `SELECT pi.*, p.nome as produto_nome 
-         FROM pedido_itens pi 
-         JOIN produtos p ON pi.produto_id = p.id 
-         WHERE pi.pedido_id = $1`,
-        [pedido.id]
-      );
-      pedido.itens = itens.rows;
-    }
-
-    res.json(pedidos.rows);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ mensagem: 'Erro ao buscar pedidos' });
-  }
-});
-
-// Atualizar status do pedido (Kanban)
 app.patch('/api/pedidos/:id/status', autenticarToken, async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;

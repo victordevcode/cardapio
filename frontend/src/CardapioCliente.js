@@ -1,30 +1,22 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { CheckoutModal } from './CheckoutModal';
 
-export default function CardapioCliente() {
+export default function CardapioCliente({ aoVoltar }) {
   const [produtos, setProdutos] = useState([]);
   const [categorias, setCategorias] = useState([]);
   const [carrinho, setCarrinho] = useState([]);
   const [carregando, setCarregando] = useState(true);
-  const [enviando, setEnviando] = useState(false);
 
   // Modal e Observação Individual do Item
   const [produtoModal, setProdutoModal] = useState(null);
   const [obsModal, setObsModal] = useState('');
   const [qtdModal, setQtdModal] = useState(1);
 
-  // ID das categorias que estão EXPANDIDAS
+  // Modal de Checkout / Cadastro do Cliente
+  const [modalCheckoutAberto, setModalCheckoutAberto] = useState(false);
+
+  // Guardamos o ID das categorias que estão EXPANDIDAS
   const [categoriasExpandidas, setCategoriasExpandidas] = useState({});
-
-  // Estados do Formulário de Entrega e Pagamento
-  const [nomeCliente, setNomeCliente] = useState('');
-  const [endereco, setEndereco] = useState('');
-  const [formaPagamento, setFormaPagamento] = useState('Pix');
-  const [trocoPara, setTrocoPara] = useState('');
-  const [bandeiraCartao, setBandeiraCartao] = useState('Mastercard/Visa');
-  const [observacoesGerais, setObservacoesGerais] = useState('');
-
-  // Configurações do Estabelecimento
-  const CHAVE_PIX = '12.345.678/0001-90';
 
   // 1. Buscar produtos do banco
   const buscarProdutos = useCallback(async () => {
@@ -83,6 +75,9 @@ export default function CardapioCliente() {
     setQtdModal(1);
   };
 
+  // -------------------------------------------------------------
+  // ALTERAÇÃO AQUI: Incluindo a descrição no objeto do item
+  // -------------------------------------------------------------
   const adicionarDoModalAoCarrinho = () => {
     if (!produtoModal) return;
 
@@ -90,6 +85,11 @@ export default function CardapioCliente() {
       cartId: `${produtoModal.id}-${Date.now()}`,
       produtoId: produtoModal.id,
       nome: produtoModal.nome,
+      
+      // Enviando o nome do produto como descrição do item no pedido
+      descricao: produtoModal.nome,
+      descricao_item: produtoModal.nome, // Mapeado para ambos os padrões
+      
       preco: produtoModal.preco,
       quantidade: qtdModal,
       observacao: obsModal.trim()
@@ -97,60 +97,6 @@ export default function CardapioCliente() {
 
     setCarrinho((prev) => [...prev, novoItem]);
     setProdutoModal(null);
-  };
-
-  const getQtdNoCarrinho = (produtoId) => {
-    return carrinho
-      .filter((item) => item.produtoId === produtoId && !item.observacao)
-      .reduce((acc, item) => acc + item.quantidade, 0);
-  };
-
-  const adicionarRapidoAoCarrinho = (produto) => {
-    setCarrinho((prev) => {
-      const itemExistente = prev.find(
-        (item) => item.produtoId === produto.id && !item.observacao
-      );
-
-      if (itemExistente) {
-        return prev.map((item) =>
-          item.cartId === itemExistente.cartId
-            ? { ...item, quantidade: item.quantidade + 1 }
-            : item
-        );
-      }
-
-      return [
-        ...prev,
-        {
-          cartId: `${produto.id}-${Date.now()}`,
-          produtoId: produto.id,
-          nome: produto.nome,
-          preco: produto.preco,
-          quantidade: 1,
-          observacao: ''
-        }
-      ];
-    });
-  };
-
-  const diminuirRapidoDoCarrinho = (produtoId) => {
-    setCarrinho((prev) => {
-      const itemExistente = prev.find(
-        (item) => item.produtoId === produtoId && !item.observacao
-      );
-
-      if (!itemExistente) return prev;
-
-      if (itemExistente.quantidade === 1) {
-        return prev.filter((item) => item.cartId !== itemExistente.cartId);
-      }
-
-      return prev.map((item) =>
-        item.cartId === itemExistente.cartId
-          ? { ...item, quantidade: item.quantidade - 1 }
-          : item
-      );
-    });
   };
 
   const removerDoCarrinho = (cartId) => {
@@ -172,124 +118,21 @@ export default function CardapioCliente() {
     return carrinho.reduce((total, item) => total + Number(item.preco) * item.quantidade, 0);
   };
 
-  const copiarChavePix = () => {
-    navigator.clipboard.writeText(CHAVE_PIX);
-    alert('Chave Pix copiada com sucesso!');
-  };
-
-  // Finalizar, Salvar no Banco/Kanban e Enviar para o WhatsApp
-  const finalizarPedido = async (e) => {
-    e.preventDefault();
-
-    if (carrinho.length === 0) {
-      alert('Seu carrinho está vazio!');
-      return;
-    }
-
-    const totalPedido = calcularTotal();
-
-    // Validação de Troco
-    if (formaPagamento === 'Dinheiro' && trocoPara) {
-      const valorTroco = parseFloat(trocoPara.replace(',', '.'));
-      if (isNaN(valorTroco) || valorTroco < totalPedido) {
-        alert(`O valor para troco (R$ ${trocoPara}) deve ser maior que o total do pedido (R$ ${totalPedido.toFixed(2)})!`);
-        return;
-      }
-    }
-
-    setEnviando(true);
-
-    try {
-      // 1. Montar payload do pedido para salvar no Banco de Dados (Kanban)
-      const payloadPedido = {
-        cliente_nome: nomeCliente,
-        endereco: endereco,
-        forma_pagamento: formaPagamento,
-        troco_para: formaPagamento === 'Dinheiro' ? trocoPara : null,
-        bandeira_cartao: (formaPagamento === 'Cartão de Crédito' || formaPagamento === 'Cartão de Débito') ? bandeiraCartao : null,
-        observacoes_gerais: observacoesGerais,
-        total: totalPedido,
-        status: 'pendente', // Inicialmente entra na coluna "Pendente" do Kanban
-        itens: carrinho.map((item) => ({
-          produto_id: item.produtoId,
-          nome: item.nome,
-          quantidade: item.quantidade,
-          preco_unitario: Number(item.preco),
-          observacao: item.observacao
-        }))
-      };
-
-      // 2. Enviar POST para salvar no backend
-      const res = await fetch('http://localhost:3000/api/pedidos', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payloadPedido)
-      });
-
-      if (!res.ok) {
-        throw new Error('Erro ao registrar o pedido no sistema.');
-      }
-
-      const resultado = await res.json();
-      const pedidoId = resultado.id || resultado.pedidoId || 'N/A';
-
-      // 3. Montar mensagem formatada para WhatsApp (com número do pedido gerado)
-      const numeroWhatsApp = '5511999999999';
-
-      let texto = `*🍔 NOVO PEDIDO #${pedidoId}*\n\n`;
-      texto += `*Cliente:* ${nomeCliente}\n`;
-      texto += `*Endereço:* ${endereco}\n`;
-      
-      texto += `*Forma de Pagamento:* ${formaPagamento}\n`;
-      if (formaPagamento === 'Dinheiro') {
-        if (trocoPara) {
-          const trocoCalculado = (parseFloat(trocoPara.replace(',', '.')) - totalPedido).toFixed(2);
-          texto += `↳ *Troco para:* R$ ${trocoPara} (Troco: R$ ${trocoCalculado})\n`;
-        } else {
-          texto += `↳ *Troco:* Não precisa de troco\n`;
-        }
-      } else if (formaPagamento === 'Cartão de Crédito' || formaPagamento === 'Cartão de Débito') {
-        texto += `↳ *Bandeira/Opção:* ${bandeiraCartao} (Levar maquininha)\n`;
-      } else if (formaPagamento === 'Pix') {
-        texto += `↳ _Comprovante será enviado a seguir_\n`;
-      }
-
-      if (observacoesGerais) texto += `*Obs. Geral:* ${observacoesGerais}\n`;
-
-      texto += `\n*ITENS DO PEDIDO:*\n`;
-      carrinho.forEach((item) => {
-        const subtotal = (Number(item.preco) * item.quantidade).toFixed(2);
-        texto += `- ${item.quantidade}x ${item.nome} (R$ ${subtotal})\n`;
-        if (item.observacao) {
-          texto += `   ↳ _Obs: ${item.observacao}_\n`;
-        }
-      });
-
-      texto += `\n*TOTAL: R$ ${totalPedido.toFixed(2)}*`;
-
-      // 4. Abrir o WhatsApp em uma nova aba
-      const url = `https://wa.me/${numeroWhatsApp}?text=${encodeURIComponent(texto)}`;
-      window.open(url, '_blank');
-
-      // 5. Limpar formulário e carrinho
-      setCarrinho([]);
-      setNomeCliente('');
-      setEndereco('');
-      setTrocoPara('');
-      setObservacoesGerais('');
-
-    } catch (err) {
-      console.error('Erro ao finalizar pedido:', err);
-      alert('Ocorreu um erro ao registrar seu pedido. Por favor, tente novamente.');
-    } finally {
-      setEnviando(false);
-    }
-  };
-
   const LIMITE_INICIAL = 4;
 
   return (
     <div className="font-sans relative">
+      {aoVoltar && (
+        <div className="mb-4">
+          <button
+            onClick={aoVoltar}
+            className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold text-xs rounded-xl transition-all flex items-center gap-2"
+          >
+            ← Voltar ao Painel Admin
+          </button>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
         {/* Colunas de Produtos */}
@@ -331,75 +174,45 @@ export default function CardapioCliente() {
                   ) : (
                     <>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        {produtosExibidos.map((prod) => {
-                          const qtdNoCarrinho = getQtdNoCarrinho(prod.id);
-
-                          return (
+                        {produtosExibidos.map((prod) => (
+                          <div
+                            key={prod.id}
+                            className="bg-gray-50/70 p-3 rounded-xl border border-gray-200/60 shadow-2xs flex flex-col justify-between hover:bg-white hover:shadow-sm transition-all group"
+                          >
                             <div
-                              key={prod.id}
-                              className="bg-gray-50/70 p-3 rounded-xl border border-gray-200/60 shadow-2xs flex flex-col justify-between hover:bg-white hover:shadow-sm transition-all group"
+                              onClick={() => abrirModalProduto(prod)}
+                              className="flex gap-3 cursor-pointer"
+                              title="Clique para ver os detalhes e personalizar"
                             >
-                              <div
-                                onClick={() => abrirModalProduto(prod)}
-                                className="flex gap-3 cursor-pointer"
-                                title="Clique para ver detalhes e ingredientes"
-                              >
-                                <img
-                                  src={prod.imagem_url || prod.imagem || 'https://via.placeholder.com/100'}
-                                  alt={prod.nome}
-                                  className="w-16 h-16 object-cover rounded-lg border border-gray-200/60 flex-shrink-0 group-hover:scale-105 transition-transform"
-                                />
-                                <div className="flex-1 min-w-0">
-                                  <h4 className="font-bold text-gray-900 text-sm leading-tight mb-0.5 truncate group-hover:text-rose-600 transition-colors">
-                                    {prod.nome}
-                                  </h4>
-                                  <p className="text-[11px] text-gray-500 line-clamp-2 leading-relaxed">
-                                    {prod.descricao}
-                                  </p>
-                                </div>
-                              </div>
-
-                              <div className="flex justify-between items-center mt-3 pt-2 border-t border-gray-200/50">
-                                <strong className="text-emerald-600 text-sm font-extrabold">
-                                  R$ {Number(prod.preco).toFixed(2)}
-                                </strong>
-
-                                {qtdNoCarrinho === 0 ? (
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      adicionarRapidoAoCarrinho(prod);
-                                    }}
-                                    className="bg-rose-600 hover:bg-rose-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-all active:scale-95 shadow-2xs flex items-center gap-1"
-                                  >
-                                    + Adicionar
-                                  </button>
-                                ) : (
-                                  <div
-                                    onClick={(e) => e.stopPropagation()}
-                                    className="flex items-center gap-1 bg-gray-100 p-0.5 rounded-lg border border-gray-200"
-                                  >
-                                    <button
-                                      onClick={() => diminuirRapidoDoCarrinho(prod.id)}
-                                      className="w-7 h-7 bg-white rounded-md font-bold text-xs text-gray-700 shadow-2xs hover:bg-gray-50 active:scale-95 flex items-center justify-center"
-                                    >
-                                      -
-                                    </button>
-                                    <span className="font-extrabold text-xs px-1.5 text-gray-800">
-                                      {qtdNoCarrinho}
-                                    </span>
-                                    <button
-                                      onClick={() => adicionarRapidoAoCarrinho(prod)}
-                                      className="w-7 h-7 bg-white rounded-md font-bold text-xs text-gray-700 shadow-2xs hover:bg-gray-50 active:scale-95 flex items-center justify-center"
-                                    >
-                                      +
-                                    </button>
-                                  </div>
-                                )}
+                              <img
+                                src={prod.imagem_url || prod.imagem || 'https://via.placeholder.com/100'}
+                                alt={prod.nome}
+                                className="w-16 h-16 object-cover rounded-lg border border-gray-200/60 flex-shrink-0 group-hover:scale-105 transition-transform"
+                              />
+                              <div className="flex-1 min-w-0">
+                                <h4 className="font-bold text-gray-900 text-sm leading-tight mb-0.5 truncate group-hover:text-rose-600 transition-colors">
+                                  {prod.nome}
+                                </h4>
+                                <p className="text-[11px] text-gray-500 line-clamp-2 leading-relaxed">
+                                  {prod.descricao}
+                                </p>
                               </div>
                             </div>
-                          );
-                        })}
+
+                            <div className="flex justify-between items-center mt-3 pt-2 border-t border-gray-200/50">
+                              <strong className="text-emerald-600 text-sm font-extrabold">
+                                R$ {Number(prod.preco).toFixed(2)}
+                              </strong>
+
+                              <button
+                                onClick={() => abrirModalProduto(prod)}
+                                className="bg-rose-600 hover:bg-rose-700 text-white px-2.5 py-1 rounded-lg text-xs font-bold transition-all active:scale-95 shadow-2xs"
+                              >
+                                + Opções / Adicionar
+                              </button>
+                            </div>
+                          </div>
+                        ))}
                       </div>
 
                       {temMaisItens && (
@@ -487,126 +300,19 @@ export default function CardapioCliente() {
                 <span className="text-emerald-600 text-xl">R$ {calcularTotal().toFixed(2)}</span>
               </div>
 
-              <form onSubmit={finalizarPedido} className="space-y-4">
-                <div className="space-y-3">
-                  <input
-                    type="text"
-                    placeholder="Seu Nome*"
-                    required
-                    value={nomeCliente}
-                    onChange={(e) => setNomeCliente(e.target.value)}
-                    className="w-full p-2.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-rose-500 focus:outline-none"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Endereço Completo*"
-                    required
-                    value={endereco}
-                    onChange={(e) => setEndereco(e.target.value)}
-                    className="w-full p-2.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-rose-500 focus:outline-none"
-                  />
-                </div>
-
-                <div className="border border-gray-200 p-3.5 rounded-xl bg-gray-50/50 space-y-3">
-                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">
-                    Forma de Pagamento
-                  </label>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    {['Pix', 'Dinheiro', 'Cartão de Crédito', 'Cartão de Débito'].map((opcao) => (
-                      <button
-                        key={opcao}
-                        type="button"
-                        onClick={() => setFormaPagamento(opcao)}
-                        className={`p-2 rounded-lg text-xs font-bold border transition-all ${
-                          formaPagamento === opcao
-                            ? 'bg-rose-600 text-white border-rose-600 shadow-2xs'
-                            : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100'
-                        }`}
-                      >
-                        {opcao === 'Pix' && '⚡ '}
-                        {opcao === 'Dinheiro' && '💵 '}
-                        {(opcao.includes('Cartão')) && '💳 '}
-                        {opcao}
-                      </button>
-                    ))}
-                  </div>
-
-                  {formaPagamento === 'Dinheiro' && (
-                    <div className="pt-2 border-t border-gray-200/60 space-y-1">
-                      <label className="block text-xs font-semibold text-gray-600">
-                        Precisa de troco? Para quanto?
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="Ex: 50,00 ou deixe em branco se não precisar"
-                        value={trocoPara}
-                        onChange={(e) => setTrocoPara(e.target.value)}
-                        className="w-full p-2 text-sm border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-rose-500 focus:outline-none"
-                      />
-                    </div>
-                  )}
-
-                  {formaPagamento === 'Pix' && (
-                    <div className="pt-2 border-t border-gray-200/60 text-xs text-gray-600 space-y-2">
-                      <div className="flex items-center justify-between bg-white p-2 rounded-lg border border-gray-200">
-                        <span className="font-mono text-gray-800 text-[11px] truncate mr-2">{CHAVE_PIX}</span>
-                        <button
-                          type="button"
-                          onClick={copiarChavePix}
-                          className="bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold px-2 py-1 rounded text-[11px] border border-gray-300 active:scale-95 transition-all"
-                        >
-                          Copiar
-                        </button>
-                      </div>
-                      <p className="text-[11px] text-amber-700 bg-amber-50 p-2 rounded-lg border border-amber-200/60">
-                        💡 Você pode fazer o Pix agora ou enviar o comprovante após enviar o pedido pelo WhatsApp.
-                      </p>
-                    </div>
-                  )}
-
-                  {(formaPagamento === 'Cartão de Crédito' || formaPagamento === 'Cartão de Débito') && (
-                    <div className="pt-2 border-t border-gray-200/60 space-y-1">
-                      <label className="block text-xs font-semibold text-gray-600">
-                        Bandeira / Observação do Cartão:
-                      </label>
-                      <select
-                        value={bandeiraCartao}
-                        onChange={(e) => setBandeiraCartao(e.target.value)}
-                        className="w-full p-2 text-sm border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-rose-500 focus:outline-none"
-                      >
-                        <option value="Mastercard/Visa">Mastercard / Visa</option>
-                        <option value="Elo">Elo</option>
-                        <option value="Hipercard">Hipercard</option>
-                        <option value="Alelo/Sodexo/VR">Vale Refeição (VR/Alelo/Sodexo)</option>
-                      </select>
-                    </div>
-                  )}
-                </div>
-
-                <textarea
-                  placeholder="Observações gerais da entrega (ex: ponto de referência, campainha...)"
-                  rows="2"
-                  value={observacoesGerais}
-                  onChange={(e) => setObservacoesGerais(e.target.value)}
-                  className="w-full p-2.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-rose-500 focus:outline-none"
-                />
-
-                <button
-                  type="submit"
-                  disabled={enviando}
-                  className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-3 rounded-xl font-bold text-sm shadow-md transition-all active:scale-98 flex items-center justify-center gap-2 disabled:opacity-50"
-                >
-                  <span>📲</span> {enviando ? 'Registrando Pedido...' : 'Enviar Pedido no WhatsApp'}
-                </button>
-              </form>
+              <button
+                onClick={() => setModalCheckoutAberto(true)}
+                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-3.5 rounded-xl font-bold text-sm shadow-md transition-all active:scale-98 flex items-center justify-center gap-2"
+              >
+                <span>🚀</span> Avançar para Finalizar
+              </button>
             </>
           )}
         </div>
 
       </div>
 
-      {/* MODAL DE DETALHES + OBSERVAÇÃO INDIVIDUAL */}
+      {/* MODAL DE DETALHES DO PRODUTO */}
       {produtoModal && (
         <div
           className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4"
@@ -642,7 +348,7 @@ export default function CardapioCliente() {
 
               <div className="bg-gray-50 p-3.5 rounded-xl border border-gray-100">
                 <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">
-                  Ingredientes & Descrição
+                  Descrição
                 </h4>
                 <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-line">
                   {produtoModal.descricao || 'Nenhuma descrição informada.'}
@@ -655,7 +361,7 @@ export default function CardapioCliente() {
                 </label>
                 <input
                   type="text"
-                  placeholder="Ex: Sem cebola, molho à parte, pão bem passado..."
+                  placeholder="Ex: Sem picles, molho à parte, pão bem passado..."
                   value={obsModal}
                   onChange={(e) => setObsModal(e.target.value)}
                   className="w-full p-2.5 text-sm border border-gray-300 rounded-xl focus:ring-2 focus:ring-rose-500 focus:outline-none"
@@ -691,6 +397,20 @@ export default function CardapioCliente() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* MODAL DE CHECKOUT */}
+      {modalCheckoutAberto && (
+        <CheckoutModal
+          carrinho={carrinho}
+          total={calcularTotal()}
+          onClose={() => setModalCheckoutAberto(false)}
+          onPedidoConcluido={() => {
+            setModalCheckoutAberto(false);
+            setCarrinho([]);
+            alert('Pedido realizado com sucesso!');
+          }}
+        />
       )}
 
     </div>
