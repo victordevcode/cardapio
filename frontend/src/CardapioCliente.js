@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { CheckoutModal } from './CheckoutModal';
+import { supabase } from './services/supabase';
 
 export default function CardapioCliente({ aoVoltar }) {
   const [produtos, setProdutos] = useState([]);
@@ -18,49 +19,44 @@ export default function CardapioCliente({ aoVoltar }) {
   // Guardamos o ID das categorias que estão EXPANDIDAS
   const [categoriasExpandidas, setCategoriasExpandidas] = useState({});
 
-  // 1. Buscar produtos do banco
-  const buscarProdutos = useCallback(async () => {
+  // Carregar Categorias e TODOS os Produtos (para exibir os indisponíveis como esgotados)
+  const carregarDados = useCallback(async () => {
     try {
-      const res = await fetch('http://localhost:3000/api/produtos');
-      if (!res.ok) throw new Error('Erro ao buscar produtos');
-      const dados = await res.json();
-      setProdutos(dados);
+      setCarregando(true);
+
+      const [resCategorias, resProdutos] = await Promise.all([
+        supabase.from('categorias').select('*'),
+        supabase.from('produtos').select('*') // Removido o filtro .eq('disponivel', true)
+      ]);
+
+      if (resCategorias.error) throw resCategorias.error;
+      if (resProdutos.error) throw resProdutos.error;
+
+      const dadosCategorias = resCategorias.data || [];
+      const ordemDesejada = ['lanches', 'porções', 'porcoes', 'bebidas'];
+
+      const categoriasOrdenadas = dadosCategorias.sort((a, b) => {
+        const indexA = ordemDesejada.indexOf((a.nome || '').toLowerCase().trim());
+        const indexB = ordemDesejada.indexOf((b.nome || '').toLowerCase().trim());
+
+        if (indexA !== -1 && indexB !== -1) return indexA - indexB;
+        if (indexA !== -1) return -1;
+        if (indexB !== -1) return 1;
+        return (a.nome || '').localeCompare(b.nome || '');
+      });
+
+      setCategorias(categoriasOrdenadas);
+      setProdutos(resProdutos.data || []);
     } catch (err) {
-      console.error('Erro na requisição GET (produtos):', err);
+      console.error('Erro ao buscar cardápio no Supabase:', err.message);
     } finally {
       setCarregando(false);
     }
   }, []);
 
-  // 2. Buscar categorias do banco e ordenar
-  const buscarCategorias = useCallback(async () => {
-    try {
-      const res = await fetch('http://localhost:3000/api/categorias');
-      if (!res.ok) throw new Error('Erro ao buscar categorias');
-      const dados = await res.json();
-
-      const ordemDesejada = ['lanches', 'porções', 'porcoes', 'bebidas'];
-
-      const categoriasOrdenadas = dados.sort((a, b) => {
-        const indexA = ordemDesejada.indexOf(a.nome.toLowerCase().trim());
-        const indexB = ordemDesejada.indexOf(b.nome.toLowerCase().trim());
-
-        if (indexA !== -1 && indexB !== -1) return indexA - indexB;
-        if (indexA !== -1) return -1;
-        if (indexB !== -1) return 1;
-        return a.nome.localeCompare(b.nome);
-      });
-
-      setCategorias(categoriasOrdenadas);
-    } catch (err) {
-      console.error('Erro na requisição GET (categorias):', err);
-    }
-  }, []);
-
   useEffect(() => {
-    buscarProdutos();
-    buscarCategorias();
-  }, [buscarProdutos, buscarCategorias]);
+    carregarDados();
+  }, [carregarDados]);
 
   const toggleExpandir = (categoriaId) => {
     setCategoriasExpandidas((prev) => ({
@@ -70,14 +66,14 @@ export default function CardapioCliente({ aoVoltar }) {
   };
 
   const abrirModalProduto = (produto) => {
+    // Bloqueia a abertura do modal caso o produto esteja indisponível
+    if (produto.disponivel === false || produto.disponivel === 0) return;
+
     setProdutoModal(produto);
     setObsModal('');
     setQtdModal(1);
   };
 
-  // -------------------------------------------------------------
-  // ALTERAÇÃO AQUI: Incluindo a descrição no objeto do item
-  // -------------------------------------------------------------
   const adicionarDoModalAoCarrinho = () => {
     if (!produtoModal) return;
 
@@ -85,11 +81,8 @@ export default function CardapioCliente({ aoVoltar }) {
       cartId: `${produtoModal.id}-${Date.now()}`,
       produtoId: produtoModal.id,
       nome: produtoModal.nome,
-      
-      // Enviando o nome do produto como descrição do item no pedido
       descricao: produtoModal.nome,
-      descricao_item: produtoModal.nome, // Mapeado para ambos os padrões
-      
+      descricao_item: produtoModal.nome,
       preco: produtoModal.preco,
       quantidade: qtdModal,
       observacao: obsModal.trim()
@@ -146,7 +139,7 @@ export default function CardapioCliente({ aoVoltar }) {
           ) : (
             categorias.map((cat) => {
               const prodsDaCategoria = produtos.filter(
-                (p) => String(p.categoria_id) === String(cat.id)
+                (p) => String(p.categoria_id) === String(cat.id) || p.categoria === cat.nome
               );
 
               const estaExpandido = !!categoriasExpandidas[cat.id];
@@ -154,6 +147,8 @@ export default function CardapioCliente({ aoVoltar }) {
                 ? prodsDaCategoria
                 : prodsDaCategoria.slice(0, LIMITE_INICIAL);
               const temMaisItens = prodsDaCategoria.length > LIMITE_INICIAL;
+
+              if (prodsDaCategoria.length === 0) return null;
 
               return (
                 <div key={cat.id} className="bg-white p-5 rounded-2xl border border-gray-200/80 shadow-sm transition-all">
@@ -169,66 +164,88 @@ export default function CardapioCliente({ aoVoltar }) {
                     </div>
                   </div>
 
-                  {prodsDaCategoria.length === 0 ? (
-                    <p className="text-xs text-gray-400 italic py-2">Sem produtos disponíveis nesta categoria.</p>
-                  ) : (
-                    <>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        {produtosExibidos.map((prod) => (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {produtosExibidos.map((prod) => {
+                      const estaDisponivel = prod.disponivel !== false && prod.disponivel !== 0;
+
+                      return (
+                        <div
+                          key={prod.id}
+                          className={`p-3 rounded-xl border flex flex-col justify-between transition-all group relative ${
+                            estaDisponivel
+                              ? 'bg-gray-50/70 border-gray-200/60 hover:bg-white hover:shadow-sm'
+                              : 'bg-gray-100/80 border-gray-200 opacity-75 grayscale-30'
+                          }`}
+                        >
                           <div
-                            key={prod.id}
-                            className="bg-gray-50/70 p-3 rounded-xl border border-gray-200/60 shadow-2xs flex flex-col justify-between hover:bg-white hover:shadow-sm transition-all group"
+                            onClick={() => abrirModalProduto(prod)}
+                            className={`flex gap-3 ${estaDisponivel ? 'cursor-pointer' : 'cursor-not-allowed'}`}
+                            title={estaDisponivel ? 'Clique para ver os detalhes e personalizar' : 'Item esgotado'}
                           >
-                            <div
-                              onClick={() => abrirModalProduto(prod)}
-                              className="flex gap-3 cursor-pointer"
-                              title="Clique para ver os detalhes e personalizar"
-                            >
+                            <div className="relative w-16 h-16 flex-shrink-0">
                               <img
                                 src={prod.imagem_url || prod.imagem || 'https://via.placeholder.com/100'}
                                 alt={prod.nome}
-                                className="w-16 h-16 object-cover rounded-lg border border-gray-200/60 flex-shrink-0 group-hover:scale-105 transition-transform"
+                                className={`w-full h-full object-cover rounded-lg border border-gray-200/60 ${
+                                  estaDisponivel ? 'group-hover:scale-105 transition-transform' : 'filter blur-[0.5px]'
+                                }`}
                               />
-                              <div className="flex-1 min-w-0">
-                                <h4 className="font-bold text-gray-900 text-sm leading-tight mb-0.5 truncate group-hover:text-rose-600 transition-colors">
-                                  {prod.nome}
-                                </h4>
-                                <p className="text-[11px] text-gray-500 line-clamp-2 leading-relaxed">
-                                  {prod.descricao}
-                                </p>
-                              </div>
+                              {!estaDisponivel && (
+                                <span className="absolute inset-0 bg-black/40 rounded-lg flex items-center justify-center text-[9px] font-black text-white tracking-wider uppercase">
+                                  Esgotado
+                                </span>
+                              )}
                             </div>
 
-                            <div className="flex justify-between items-center mt-3 pt-2 border-t border-gray-200/50">
-                              <strong className="text-emerald-600 text-sm font-extrabold">
-                                R$ {Number(prod.preco).toFixed(2)}
-                              </strong>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between gap-1 mb-0.5">
+                                <h4 className={`font-bold text-sm leading-tight truncate ${
+                                  estaDisponivel ? 'text-gray-900 group-hover:text-rose-600 transition-colors' : 'text-gray-500'
+                                }`}>
+                                  {prod.nome}
+                                </h4>
+                              </div>
+                              <p className="text-[11px] text-gray-500 line-clamp-2 leading-relaxed">
+                                {prod.descricao || 'Sem descrição'}
+                              </p>
+                            </div>
+                          </div>
 
+                          <div className="flex justify-between items-center mt-3 pt-2 border-t border-gray-200/50">
+                            <strong className={estaDisponivel ? 'text-emerald-600 text-sm font-extrabold' : 'text-gray-400 text-sm font-extrabold'}>
+                              R$ {Number(prod.preco).toFixed(2)}
+                            </strong>
+
+                            {estaDisponivel ? (
                               <button
                                 onClick={() => abrirModalProduto(prod)}
                                 className="bg-rose-600 hover:bg-rose-700 text-white px-2.5 py-1 rounded-lg text-xs font-bold transition-all active:scale-95 shadow-2xs"
                               >
                                 + Opções / Adicionar
                               </button>
-                            </div>
+                            ) : (
+                              <span className="bg-gray-200 text-gray-500 border border-gray-300 px-2.5 py-1 rounded-lg text-xs font-bold cursor-not-allowed select-none">
+                                Indisponível
+                              </span>
+                            )}
                           </div>
-                        ))}
-                      </div>
-
-                      {temMaisItens && (
-                        <div className="mt-4 text-center pt-2">
-                          <button
-                            onClick={() => toggleExpandir(cat.id)}
-                            className="w-full sm:w-auto px-6 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs rounded-full border border-gray-300/80 transition-all shadow-2xs active:scale-98"
-                          >
-                            {estaExpandido
-                              ? 'Mostrar menos ▲'
-                              : `Mostrar mais (+${prodsDaCategoria.length - LIMITE_INICIAL}) ▼`
-                            }
-                          </button>
                         </div>
-                      )}
-                    </>
+                      );
+                    })}
+                  </div>
+
+                  {temMaisItens && (
+                    <div className="mt-4 text-center pt-2">
+                      <button
+                        onClick={() => toggleExpandir(cat.id)}
+                        className="w-full sm:w-auto px-6 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs rounded-full border border-gray-300/80 transition-all shadow-2xs active:scale-98"
+                      >
+                        {estaExpandido
+                          ? 'Mostrar menos ▲'
+                          : `Mostrar mais (+${prodsDaCategoria.length - LIMITE_INICIAL}) ▼`
+                        }
+                      </button>
+                    </div>
                   )}
                 </div>
               );
