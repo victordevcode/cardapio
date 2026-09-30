@@ -13,7 +13,7 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Garante que a pasta "uploads" existe
+// Garante que a pasta "uploads" existe localmente
 const uploadDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
@@ -22,7 +22,7 @@ if (!fs.existsSync(uploadDir)) {
 // Servir a pasta "uploads" como estática para exibir as fotos no navegador
 app.use('/uploads', express.static(uploadDir));
 
-// Configuração do Multer para salvar os arquivos
+// Configuração do Multer para salvar os arquivos de imagem localmente
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     cb(null, uploadDir);
@@ -44,7 +44,8 @@ const pool = new Pool({
   host: process.env.DB_HOST,
   database: process.env.DB_NAME,
   password: process.env.DB_PASSWORD,
-  port: Number(process.env.DB_PORT),
+  port: Number(process.env.DB_PORT) || 5432,
+  ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
 });
 
 // Trata erros de conexão sem derrubar a aplicação
@@ -78,31 +79,49 @@ app.post('/api/registrar', async (req, res) => {
     );
     res.status(201).json(resultado.rows[0]);
   } catch (err) {
-    console.error(err);
+    console.error('Erro ao registrar usuário:', err);
     res.status(500).json({ mensagem: 'Erro ao registrar usuário.' });
   }
 });
 
 app.post('/api/login', async (req, res) => {
-  const { email, senha } = req.body;
+  const { email, senha, password } = req.body;
+  const pass = senha || password;
+
+  if (!email || !pass) {
+    return res.status(400).json({ mensagem: 'E-mail e senha são obrigatórios.' });
+  }
+
   try {
-    const usuarioRes = await pool.query('SELECT * FROM usuarios WHERE email = $1', [email]);
+    const usuarioRes = await pool.query('SELECT * FROM usuarios WHERE LOWER(email) = LOWER($1)', [email.trim()]);
+    
     if (usuarioRes.rows.length === 0) {
       return res.status(400).json({ mensagem: 'E-mail ou senha incorretos.' });
     }
 
     const usuario = usuarioRes.rows[0];
-    let senhaValida = await bcrypt.compare(senha, usuario.senha);
-    if (!senhaValida && senha === usuario.senha) senhaValida = true;
+    
+    // Suporta hash bcrypt e comparação em texto simples
+    let senhaValida = false;
+    if (usuario.senha && usuario.senha.startsWith('$2')) {
+      senhaValida = await bcrypt.compare(pass, usuario.senha);
+    } else {
+      senhaValida = pass === usuario.senha;
+    }
 
     if (!senhaValida) {
       return res.status(400).json({ mensagem: 'E-mail ou senha incorretos.' });
     }
 
-    const token = jwt.sign({ id: usuario.id, email: usuario.email, nome: usuario.nome }, JWT_SECRET, { expiresIn: '8h' });
+    const token = jwt.sign(
+      { id: usuario.id, email: usuario.email, nome: usuario.nome },
+      JWT_SECRET,
+      { expiresIn: '8h' }
+    );
+
     res.json({ token, usuario: { id: usuario.id, nome: usuario.nome, email: usuario.email } });
   } catch (err) {
-    console.error(err);
+    console.error('Erro ao realizar login:', err);
     res.status(500).json({ mensagem: 'Erro no servidor ao realizar login.' });
   }
 });
@@ -114,6 +133,7 @@ app.get('/api/categorias', async (req, res) => {
     const resultado = await pool.query('SELECT * FROM categorias ORDER BY nome ASC');
     res.json(resultado.rows);
   } catch (err) {
+    console.error('Erro ao buscar categorias:', err);
     res.status(500).json({ mensagem: 'Erro ao buscar categorias' });
   }
 });
@@ -124,6 +144,7 @@ app.post('/api/categorias', autenticarToken, async (req, res) => {
     const resultado = await pool.query('INSERT INTO categorias (nome) VALUES ($1) RETURNING *', [nome]);
     res.status(201).json(resultado.rows[0]);
   } catch (err) {
+    console.error('Erro ao criar categoria:', err);
     res.status(500).json({ mensagem: 'Erro ao criar categoria' });
   }
 });
@@ -140,6 +161,7 @@ app.get('/api/produtos', async (req, res) => {
     `);
     res.json(resultado.rows);
   } catch (err) {
+    console.error('Erro ao buscar produtos:', err);
     res.status(500).json({ mensagem: 'Erro ao buscar produtos' });
   }
 });
@@ -233,9 +255,9 @@ app.delete('/api/produtos/:id', autenticarToken, async (req, res) => {
     res.status(500).json({ mensagem: 'Erro ao excluir produto' });
   }
 });
+
 // ==================== CLIENTES ====================
 
-// Rota para buscar os dados do cliente pelo telefone ao digitar no CheckoutModal
 app.get('/api/clientes/:telefone', async (req, res) => {
   const { telefone } = req.params;
   try {
@@ -254,16 +276,15 @@ app.get('/api/clientes/:telefone', async (req, res) => {
     res.status(500).json({ mensagem: 'Erro ao buscar cliente' });
   }
 });
-// ==================== PEDIDOS (PAINEL DA COZINHA) ====================
+
+// ==================== PEDIDOS ====================
 
 app.post('/api/pedidos', async (req, res) => {
-  // Trata caso os dados venham em req.body.cliente ou diretamente em req.body
   const clienteData = req.body.cliente || {};
 
   const cliente_nome = req.body.cliente_nome || clienteData.nome || req.body.nome;
   const cliente_telefone = req.body.cliente_telefone || clienteData.telefone || req.body.telefone;
   
-  // Monta o endereço de entrega completo
   const enderecoRaw = req.body.endereco_entrega || req.body.endereco || clienteData.endereco || '';
   const bairroRaw = req.body.bairro || clienteData.bairro || '';
   const complementoRaw = req.body.complemento || clienteData.complemento || '';
@@ -278,13 +299,11 @@ app.post('/api/pedidos', async (req, res) => {
   const observacoes = req.body.observacoes || '';
   const cliente_id = req.body.cliente_id || clienteData.id || null;
 
-  // Validação preventiva
   if (!cliente_nome || !cliente_nome.trim()) {
     return res.status(400).json({ mensagem: 'O campo cliente_nome é obrigatório.' });
   }
 
   try {
-    // Insere o pedido usando a estrutura exata da sua tabela no banco
     const pedidoRes = await pool.query(
       `INSERT INTO pedidos (
         cliente_nome, 
@@ -313,7 +332,6 @@ app.post('/api/pedidos', async (req, res) => {
     const pedidoId = pedidoRes.rows[0].id;
     const itens = req.body.itens || [];
 
-    // Insere os itens do pedido (se a tabela pedido_itens existir)
     if (Array.isArray(itens) && itens.length > 0) {
       for (const item of itens) {
         await pool.query(
@@ -341,6 +359,7 @@ app.post('/api/pedidos', async (req, res) => {
     res.status(500).json({ mensagem: 'Erro interno ao criar pedido: ' + err.message });
   }
 });
+
 app.patch('/api/pedidos/:id/status', autenticarToken, async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
@@ -352,7 +371,7 @@ app.patch('/api/pedidos/:id/status', autenticarToken, async (req, res) => {
   }
 });
 
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Servidor rodando na porta ${PORT}`);
+  console.log(`✅ Servidor backend rodando na porta ${PORT}`);
 });
