@@ -277,6 +277,76 @@ app.get('/api/clientes/:telefone', async (req, res) => {
   }
 });
 
+// ==================== MERCADO PAGO / PIX ====================
+
+app.post('/api/pagamento/pix', async (req, res) => {
+  try {
+    const clienteData = req.body.cliente || {};
+    const total = req.body.total || req.body.valor_total || req.body.valor || 0;
+    const nome = req.body.nome || req.body.cliente_nome || clienteData.nome || 'Cliente';
+    const email = req.body.email || req.body.cliente_email || clienteData.email;
+
+    // Validação do e-mail exigido pelo Mercado Pago
+    if (!email || !email.includes('@')) {
+      return res.status(400).json({ 
+        mensagem: 'O campo e-mail é obrigatório e precisa ser válido para gerar o PIX.' 
+      });
+    }
+
+    // Retorno de Teste/Mock ajustado para o CheckoutModal.jsx
+    console.log(`Recebida solicitação de PIX para ${nome} (${email}) no valor de R$ ${total}`);
+    
+    return res.json({
+      success: true,
+      pagamentoId: 123456789,
+      status: 'pending',
+      qrCodeBase64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+      pixCopiaECola: '00020126580014BR.GOV.BCB.PIX0136123e4567-e89b-12d3-a456-426614174000520400005303986540533.005802BR5913Lanches da Ju6008SAO PAULO62070503***6304E2CA'
+    });
+
+  } catch (err) {
+    console.error('Erro ao processar PIX:', err);
+    res.status(500).json({ mensagem: 'Erro ao gerar pagamento PIX: ' + err.message });
+  }
+});
+
+// ==================== WEBHOOK MERCADO PAGO ====================
+app.post('/api/webhook/mercadopago', async (req, res) => {
+  try {
+    const { action, data } = req.body;
+
+    // A notificação pode vir com diferentes tipos de eventos
+    if (action === 'payment.updated' || action === 'payment.created') {
+      const paymentId = data.id;
+
+      // Busca os detalhes do pagamento na API do Mercado Pago (opcional, mas recomendado)
+      // Substitua com a chamada correta para o SDK
+      // const payment = await new Payment(client).get(paymentId);
+      // const paymentStatus = payment.status;
+
+      // Simulando a aprovação para teste (remover em produção)
+      const paymentStatus = 'approved'; 
+
+      if (paymentStatus === 'approved') {
+        // Atualiza o status do pagamento na tabela de pedidos do Supabase
+        await pool.query(
+          `UPDATE pedidos 
+           SET status = 'Pendente', pagamento_status = 'Aprovado' 
+           WHERE pagamento_id = $1`,
+          [paymentId]
+        );
+        console.log(`Pagamento ${paymentId} aprovado e pedido atualizado!`);
+      }
+    }
+
+    // Responde ao Mercado Pago para confirmar o recebimento da notificação
+    res.status(200).send('Webhook recebido com sucesso');
+  } catch (err) {
+    console.error('Erro no webhook:', err);
+    res.status(500).json({ mensagem: 'Erro interno ao processar webhook' });
+  }
+});
+
 // ==================== PEDIDOS ====================
 
 app.post('/api/pedidos', async (req, res) => {
@@ -284,7 +354,7 @@ app.post('/api/pedidos', async (req, res) => {
 
   const cliente_nome = req.body.cliente_nome || clienteData.nome || req.body.nome;
   const cliente_telefone = req.body.cliente_telefone || clienteData.telefone || req.body.telefone;
-  
+  const cliente_email = req.body.cliente_email || clienteData.email || req.body.email;
   const enderecoRaw = req.body.endereco_entrega || req.body.endereco || clienteData.endereco || '';
   const bairroRaw = req.body.bairro || clienteData.bairro || '';
   const complementoRaw = req.body.complemento || clienteData.complemento || '';
@@ -294,7 +364,10 @@ app.post('/api/pedidos', async (req, res) => {
     .join(', ');
 
   const tipo_entrega = req.body.tipo_entrega || 'delivery';
-  const forma_pagamento = req.body.forma_pagamento || 'pix';
+  
+  // Suporta tanto 'formaPagamento' (frontend camelCase) quanto 'forma_pagamento' (snake_case)
+  const forma_pagamento = req.body.formaPagamento || req.body.forma_pagamento || 'PIX';
+  
   const valor_total = req.body.valor_total || req.body.total || 0;
   const observacoes = req.body.observacoes || '';
   const cliente_id = req.body.cliente_id || clienteData.id || null;
@@ -314,8 +387,9 @@ app.post('/api/pedidos', async (req, res) => {
         valor_total, 
         status, 
         observacoes, 
-        cliente_id
-      ) VALUES ($1, $2, $3, $4, $5, $6, 'Pendente', $7, $8) 
+        cliente_id,
+        cliente_email
+      ) VALUES ($1, $2, $3, $4, $5, $6, 'Pendente', $7, $8, $9) 
       RETURNING *`,
       [
         cliente_nome,
@@ -325,7 +399,8 @@ app.post('/api/pedidos', async (req, res) => {
         forma_pagamento,
         valor_total,
         observacoes,
-        cliente_id
+        cliente_id,
+        cliente_email || ''
       ]
     );
 
