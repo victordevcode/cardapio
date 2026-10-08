@@ -7,6 +7,11 @@ const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const { MercadoPagoConfig, Payment } = require('mercadopago');
+
+const client = new MercadoPagoConfig({ 
+  accessToken: process.env.MERCADOPAGO_ACCESS_TOKEN 
+});
 
 const app = express();
 app.use(cors());
@@ -277,73 +282,126 @@ app.get('/api/clientes/:telefone', async (req, res) => {
   }
 });
 
-// ==================== MERCADO PAGO / PIX ====================
+// ==================== MERCADO PAGO / PIX REAL ====================
 
 app.post('/api/pagamento/pix', async (req, res) => {
   try {
-    const clienteData = req.body.cliente || {};
-    const total = req.body.total || req.body.valor_total || req.body.valor || 0;
-    const nome = req.body.nome || req.body.cliente_nome || clienteData.nome || 'Cliente';
-    const email = req.body.email || req.body.cliente_email || clienteData.email;
+    const { pedido_id, total, valor_total, valor, cliente, cliente_nome, cliente_email, email } = req.body;
 
-    // Validação do e-mail exigido pelo Mercado Pago
-    if (!email || !email.includes('@')) {
+    const clienteData = cliente || {};
+    const valorCobranca = Number(total || valor_total || valor || 0);
+    
+    let nomeCompleto = (cliente_nome || clienteData.nome || 'Cliente Teste').trim();
+    let partesNome = nomeCompleto.split(' ');
+    let firstName = partesNome[0] || 'Cliente';
+    let lastName = partesNome.slice(1).join(' ') || 'Teste';
+
+    // No Sandbox do Mercado Pago, NUNCA use o e-mail da sua própria conta de dev (dono do token)
+    let emailCliente = (cliente_email || email || clienteData.email || '').trim();
+    if (!emailCliente || !emailCliente.includes('@') || emailCliente.includes('203309016')) {
+      emailCliente = 'comprador_teste_pix@testuser.com';
+    }
+
+    if (valorCobranca <= 0) {
       return res.status(400).json({ 
-        mensagem: 'O campo e-mail é obrigatório e precisa ser válido para gerar o PIX.' 
+        mensagem: 'O valor do pagamento deve ser maior que zero.' 
       });
     }
 
-    // Retorno de Teste/Mock ajustado para o CheckoutModal.jsx
-    console.log(`Recebida solicitação de PIX para ${nome} (${email}) no valor de R$ ${total}`);
-    
+    const payment = new Payment(client);
+
+    // Chave de idempotência única exigida pelo SDK v2
+    const idempotencyKey = `pix-${pedido_id || Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+
+    const response = await payment.create({
+      body: {
+        transaction_amount: Number(valorCobranca.toFixed(2)),
+        description: `Pedido Lanches da Ju ${pedido_id ? `#${pedido_id}` : ''}`,
+        payment_method_id: 'pix',
+        payer: {
+          email: emailCliente,
+          first_name: firstName,
+          last_name: lastName
+        },
+        external_reference: pedido_id ? String(pedido_id) : undefined
+      },
+      requestOptions: {
+        idempotencyKey: idempotencyKey
+      }
+    });
+
+    const paymentId = response.id;
+    const pointOfInteraction = response.point_of_interaction?.transaction_data;
+
+    if (pedido_id) {
+      await pool.query(
+        'UPDATE pedidos SET pagamento_id = $1 WHERE id = $2',
+        [String(paymentId), pedido_id]
+      ).catch(err => console.error('Aviso ao atualizar pagamento_id:', err.message));
+    }
+
+    console.log(`✅ Pix gerado com sucesso! ID Mercado Pago: ${paymentId}`);
+
     return res.json({
       success: true,
-      pagamentoId: 123456789,
-      status: 'pending',
-      qrCodeBase64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
-      pixCopiaECola: '00020126580014BR.GOV.BCB.PIX0136123e4567-e89b-12d3-a456-426614174000520400005303986540533.005802BR5913Lanches da Ju6008SAO PAULO62070503***6304E2CA'
+      pagamentoId: paymentId,
+      status: response.status,
+      qrCodeBase64: pointOfInteraction?.qr_code_base64,
+      pixCopiaECola: pointOfInteraction?.qr_code
     });
 
   } catch (err) {
-    console.error('Erro ao processar PIX:', err);
-    res.status(500).json({ mensagem: 'Erro ao gerar pagamento PIX: ' + err.message });
+    console.error('Erro ao gerar PIX no Mercado Pago:', err);
+    
+    // Se a API do Mercado Pago retornar detalhes de erro, exibe no terminal
+    if (err.api_response && err.api_response.body) {
+      console.error('Detalhes da resposta do Mercado Pago:', JSON.stringify(err.api_response.body, null, 2));
+    }
+
+    res.status(500).json({ 
+      mensagem: 'Erro ao gerar pagamento PIX: ' + (err.message || 'Erro desconhecido') 
+    });
   }
 });
 
 // ==================== WEBHOOK MERCADO PAGO ====================
 app.post('/api/webhook/mercadopago', async (req, res) => {
   try {
-    const { action, data } = req.body;
+    console.log('Notificação Webhook Recebida:', req.body);
 
-    // A notificação pode vir com diferentes tipos de eventos
-    if (action === 'payment.updated' || action === 'payment.created') {
+    // O Mercado Pago pode enviar eventos em req.body.action ou req.body.type
+    const action = req.body.action || req.body.type;
+    const data = req.body.data;
+
+    // Garante que 'data' existe e contém um 'id'
+    if (data && data.id) {
       const paymentId = data.id;
 
-      // Busca os detalhes do pagamento na API do Mercado Pago (opcional, mas recomendado)
-      // Substitua com a chamada correta para o SDK
-      // const payment = await new Payment(client).get(paymentId);
-      // const paymentStatus = payment.status;
-
-      // Simulando a aprovação para teste (remover em produção)
-      const paymentStatus = 'approved'; 
-
-      if (paymentStatus === 'approved') {
-        // Atualiza o status do pagamento na tabela de pedidos do Supabase
-        await pool.query(
+      // Atualiza o pedido se houver um pagamento associado no seu banco
+      try {
+        const resultado = await pool.query(
           `UPDATE pedidos 
            SET status = 'Pendente', pagamento_status = 'Aprovado' 
-           WHERE pagamento_id = $1`,
+           WHERE pagamento_id = $1 RETURNING *`,
           [paymentId]
         );
-        console.log(`Pagamento ${paymentId} aprovado e pedido atualizado!`);
+
+        if (resultado.rowCount > 0) {
+          console.log(`✅ Pagamento ${paymentId} aprovado e pedido #${resultado.rows[0].id} atualizado!`);
+        } else {
+          console.log(`ℹ️ Notificação recebida para o pagamento ${paymentId}, mas nenhum pedido correspondente foi encontrado no banco.`);
+        }
+      } catch (dbErr) {
+        console.error('Erro ao atualizar banco no Webhook:', dbErr.message);
       }
     }
 
-    // Responde ao Mercado Pago para confirmar o recebimento da notificação
-    res.status(200).send('Webhook recebido com sucesso');
+    // Responda SEMPRE com HTTP 200 OK para o Mercado Pago confirmar a entrega
+    return res.status(200).send('OK');
   } catch (err) {
-    console.error('Erro no webhook:', err);
-    res.status(500).json({ mensagem: 'Erro interno ao processar webhook' });
+    console.error('Erro geral no webhook:', err);
+    // Mesmo em erro, é recomendável responder 200 em testes para evitar reenvio em loop
+    return res.status(200).send('OK com avisos');
   }
 });
 
