@@ -4,12 +4,14 @@ import ListagemCardapio from './ListagemCardapio';
 import CadastroCardapio from './CadastroCardapio';
 import QuadroKanbanPedidos from './QuadroKanbanPedidos';
 import CardapioCliente from './CardapioCliente';
+import GestaoTaxas from './GestaoTaxas';
 
 export default function App() {
   const [autenticado, setAutenticado] = useState(false);
   const [telaAtual, setTelaAtual] = useState('listagem');
-  // Estado para controlar a visibilidade do menu
-  const [menuVisivel, setMenuVisivel] = useState(false);
+  
+  // Menu visível por padrão (DEFAULT: true)
+  const [menuVisivel, setMenuVisivel] = useState(true);
 
   useEffect(() => {
     const token = sessionStorage.getItem('token');
@@ -39,7 +41,7 @@ export default function App() {
         {/* ================= 1. CABEÇALHO FIXO COM A LOGO ================= */}
         <header className="bg-gradient-to-r from-slate-900 to-slate-800 rounded-2xl text-white p-4 shadow-md flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-4">
-            {/* Adicionado o onClick e cursor-pointer na imagem */}
+            {/* O clique na logo expande/recolhe o menu */}
             <img
               src="logo_ju.PNG"
               alt="Logo do Lanche"
@@ -60,19 +62,19 @@ export default function App() {
 
           <button
             onClick={handleLogout}
-            className="px-3 py-1.5 text-xs font-bold bg-red-500/10 hover:bg-red-500 text-red-400 hover:text-white rounded-lg transition-all border border-red-500/20 flex items-center gap-1.5"
+            className="px-3 py-1.5 text-xs font-bold bg-red-500/10 hover:bg-red-500 text-red-400 hover:text-white rounded-lg transition-all border border-red-500/20 flex items-center gap-1.5 cursor-pointer"
           >
-            Sair🚪
+            Sair 🚪
           </button>
         </header>
 
-        {/* ================= 2. BOTÕES DE NAVEGAÇÃO (RENDERIZAÇÃO CONDICIONAL) ================= */}
+        {/* ================= 2. BOTÕES DE NAVEGAÇÃO (EXIBIDOS POR PADRÃO) ================= */}
         {menuVisivel && (
           <nav className="bg-white p-2.5 rounded-xl shadow-sm border border-gray-200/80 flex flex-wrap items-center justify-between gap-2 animate-fade-in">
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2 items-center">
               <button
                 onClick={() => setTelaAtual('listagem')}
-                className={`px-4 py-2 text-sm font-bold rounded-lg transition-all ${
+                className={`px-4 py-2 text-sm font-bold rounded-lg transition-all cursor-pointer ${
                   telaAtual === 'listagem'
                     ? 'bg-rose-600 text-white shadow-sm'
                     : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-200/60'
@@ -83,7 +85,7 @@ export default function App() {
 
               <button
                 onClick={() => setTelaAtual('cadastro')}
-                className={`px-4 py-2 text-sm font-bold rounded-lg transition-all ${
+                className={`px-4 py-2 text-sm font-bold rounded-lg transition-all cursor-pointer ${
                   telaAtual === 'cadastro'
                     ? 'bg-rose-600 text-white shadow-sm'
                     : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-200/60'
@@ -94,7 +96,7 @@ export default function App() {
 
               <button
                 onClick={() => setTelaAtual('kanban')}
-                className={`px-4 py-2 text-sm font-bold rounded-lg transition-all ${
+                className={`px-4 py-2 text-sm font-bold rounded-lg transition-all cursor-pointer ${
                   telaAtual === 'kanban'
                     ? 'bg-rose-600 text-white shadow-sm'
                     : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-200/60'
@@ -102,18 +104,29 @@ export default function App() {
               >
                 📊 Cozinha
               </button>
+
+              <button
+                onClick={() => setTelaAtual('taxas')}
+                className={`px-4 py-2 text-sm font-bold rounded-lg transition-all cursor-pointer ${
+                  telaAtual === 'taxas'
+                    ? 'bg-rose-600 text-white shadow-sm'
+                    : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-200/60'
+                }`}
+              >
+                🛵 Taxas
+              </button>
             </div>
 
-            {/* Botão de abrir/ver o cardápio */}
+            {/* Botão de abrir/ver o cardápio do cliente */}
             <button
               onClick={() => setTelaAtual('cardapio')}
-              className={`px-4 py-2 text-sm font-bold rounded-lg transition-all ${
+              className={`px-4 py-2 text-sm font-bold rounded-lg transition-all cursor-pointer ${
                 telaAtual === 'cardapio'
                   ? 'bg-emerald-500 text-white shadow-sm'
                   : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200'
               }`}
             >
-              📱
+              📱 Cardápio Cliente
             </button>
           </nav>
         )}
@@ -123,6 +136,7 @@ export default function App() {
           {telaAtual === 'listagem' && <ListagemCardapio />}
           {telaAtual === 'cadastro' && <CadastroCardapio />}
           {telaAtual === 'kanban' && <QuadroKanbanPedidos />}
+          {telaAtual === 'taxas' && <GestaoTaxas />}
           {telaAtual === 'cardapio' && (
             <CardapioCliente aoVoltar={() => setTelaAtual('listagem')} />
           )}

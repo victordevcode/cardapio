@@ -405,6 +405,84 @@ app.post('/api/webhook/mercadopago', async (req, res) => {
   }
 });
 
+// ==================== TAXAS DE ENTREGA ====================
+
+// Listar todas as taxas
+app.get('/api/taxas-entrega', async (req, res) => {
+  try {
+    const resultado = await pool.query('SELECT * FROM taxas_entrega ORDER BY bairro ASC');
+    res.json(resultado.rows);
+  } catch (err) {
+    console.error('Erro ao buscar taxas de entrega:', err);
+    res.status(500).json({ mensagem: 'Erro ao buscar taxas de entrega' });
+  }
+});
+
+// Cadastrar nova taxa
+app.post('/api/taxas-entrega', autenticarToken, async (req, res) => {
+  const { bairro, valor } = req.body;
+
+  if (!bairro || valor === undefined) {
+    return res.status(400).json({ mensagem: 'Bairro e valor são obrigatórios.' });
+  }
+
+  try {
+    const resultado = await pool.query(
+      'INSERT INTO taxas_entrega (bairro, valor) VALUES ($1, $2) RETURNING *',
+      [bairro.trim(), Number(valor)]
+    );
+    res.status(201).json(resultado.rows[0]);
+  } catch (err) {
+    console.error('Erro ao cadastrar taxa:', err);
+    res.status(500).json({ mensagem: 'Erro ao cadastrar taxa de entrega' });
+  }
+});
+
+// Editar taxa existente
+app.put('/api/taxas-entrega/:id', autenticarToken, async (req, res) => {
+  const { id } = req.params;
+  const { bairro, valor, ativo } = req.body;
+
+  try {
+    const resultado = await pool.query(
+      `UPDATE taxas_entrega 
+       SET bairro = $1, valor = $2, ativo = $3 
+       WHERE id = $4 RETURNING *`,
+      [bairro, Number(valor), ativo ?? true, id]
+    );
+    res.json(resultado.rows[0]);
+  } catch (err) {
+    console.error('Erro ao atualizar taxa:', err);
+    res.status(500).json({ mensagem: 'Erro ao atualizar taxa de entrega' });
+  }
+});
+
+// Excluir taxa
+app.delete('/api/taxas-entrega/:id', autenticarToken, async (req, res) => {
+  const { id } = req.params;
+  try {
+    await pool.query('DELETE FROM taxas_entrega WHERE id = $1', [id]);
+    res.json({ mensagem: 'Taxa excluída com sucesso!' });
+  } catch (err) {
+    console.error('Erro ao excluir taxa:', err);
+    res.status(500).json({ mensagem: 'Erro ao excluir taxa de entrega' });
+  }
+});
+// ==================== ROTA PÚBLICA DE TAXAS (PARA O CLIENTE) ====================
+// Essa rota permite que o cliente liste os bairros e taxas sem precisar de token de login
+
+app.get('/api/taxas-entrega/publicas', async (req, res) => {
+  try {
+    const resultado = await pool.query(
+      'SELECT id, bairro, valor FROM taxas_entrega WHERE ativo = true ORDER BY bairro ASC'
+    );
+    res.json(resultado.rows);
+  } catch (err) {
+    console.error('Erro ao buscar taxas públicas:', err);
+    res.status(500).json({ mensagem: 'Erro ao carregar bairros para entrega' });
+  }
+});
+
 // ==================== PEDIDOS ====================
 
 app.post('/api/pedidos', async (req, res) => {

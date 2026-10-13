@@ -5,21 +5,53 @@ export function CheckoutModal({ carrinho, total, onClose, onPedidoConcluido }) {
   const [email, setEmail] = useState('');
   const [nome, setNome] = useState('');
   const [endereco, setEndereco] = useState('');
-  const [bairro, setBairro] = useState('');
   const [complemento, setComplemento] = useState('');
-  
+
+  // Estados para Bairros e Taxas
+  const [bairros, setBairros] = useState([]);
+  const [bairroSelecionadoId, setBairroSelecionadoId] = useState('');
+  const [bairroNome, setBairroNome] = useState('');
+  const [taxaEntrega, setTaxaEntrega] = useState(0);
+
   // Opções: 'pix', 'dinheiro', 'credito', 'debito'
   const [formaPagamento, setFormaPagamento] = useState('pix');
   const [trocoPara, setTrocoPara] = useState('');
 
   const [loading, setLoading] = useState(false);
+  const [carregandoBairros, setCarregandoBairros] = useState(true);
 
-  // Estados para controlar a exibição do QR Code PIX
+  // Estados do PIX
   const [dadosPix, setDadosPix] = useState(null);
   const [copiado, setCopiado] = useState(false);
 
-  // 1. Carrega dados prévios do localStorage
+  // Total Final (Itens + Entrega)
+  const totalFinal = Number(total || 0) + Number(taxaEntrega || 0);
+
+  // 1. Carregar Bairros do Backend
   useEffect(() => {
+    async function carregarTaxas() {
+      try {
+        setCarregandoBairros(true);
+        // Tenta rota pública primeiro, e se falhar tenta a rota padrão
+        let res = await fetch('http://localhost:3000/api/taxas-entrega/publicas');
+        if (!res.ok) {
+          res = await fetch('http://localhost:3000/api/taxas-entrega');
+        }
+        
+        if (res.ok) {
+          const dados = await res.json();
+          setBairros(dados);
+        }
+      } catch (e) {
+        console.error('Erro ao carregar taxas de entrega:', e);
+      } finally {
+        setCarregandoBairros(false);
+      }
+    }
+
+    carregarTaxas();
+
+    // Restaurar dados salvos no localStorage
     const clienteSalvo = localStorage.getItem('lanches_ju_cliente');
     if (clienteSalvo) {
       try {
@@ -28,15 +60,30 @@ export function CheckoutModal({ carrinho, total, onClose, onPedidoConcluido }) {
         setEmail(dados.email || '');
         setNome(dados.nome || '');
         setEndereco(dados.endereco || '');
-        setBairro(dados.bairro || '');
         setComplemento(dados.complemento || '');
+        if (dados.bairro) setBairroNome(dados.bairro);
       } catch (e) {
-        console.error("Erro ao ler dados salvos:", e);
+        console.error('Erro ao ler dados salvos:', e);
       }
     }
   }, []);
 
-  // 2. Busca cadastro no backend ao digitar o telefone
+  // 2. Tratar Seleção do Bairro
+  const handleBairroChange = (e) => {
+    const id = e.target.value;
+    setBairroSelecionadoId(id);
+
+    const item = bairros.find((b) => String(b.id) === String(id));
+    if (item) {
+      setBairroNome(item.bairro);
+      setTaxaEntrega(Number(item.valor || 0));
+    } else {
+      setBairroNome('');
+      setTaxaEntrega(0);
+    }
+  };
+
+  // 3. Busca rápida por telefone
   const handleTelefoneChange = async (e) => {
     const valor = e.target.value;
     setTelefone(valor);
@@ -51,7 +98,6 @@ export function CheckoutModal({ carrinho, total, onClose, onPedidoConcluido }) {
             setEmail(data.email || '');
             setNome(data.nome || '');
             setEndereco(data.endereco || '');
-            setBairro(data.bairro || '');
             setComplemento(data.complemento || '');
           }
         }
@@ -61,25 +107,37 @@ export function CheckoutModal({ carrinho, total, onClose, onPedidoConcluido }) {
     }
   };
 
-  // 3. Processa o pedido de acordo com a forma de pagamento escolhida
+  // 4. Submit do Pedido
   const handleFinalizarPedido = async (e) => {
     e.preventDefault();
+
+    if (!bairroNome) {
+      alert('Por favor, selecione ou informe o seu bairro.');
+      return;
+    }
+
     setLoading(true);
 
     try {
       const telefoneLimpo = telefone.replace(/\D/g, '');
-      const clienteData = { telefone: telefoneLimpo, email, nome, endereco, bairro, complemento };
+      const clienteData = {
+        telefone: telefoneLimpo,
+        email,
+        nome,
+        endereco,
+        bairro: bairroNome,
+        taxa_entrega: taxaEntrega,
+        complemento,
+      };
 
-      // Salva dados no localStorage para facilitar na próxima compra
       localStorage.setItem('lanches_ju_cliente', JSON.stringify(clienteData));
 
-      // FLUXO A: Pagamento via PIX (Gera cobrança no Mercado Pago)
       if (formaPagamento === 'pix') {
         const resPix = await fetch('http://localhost:3000/api/pagamento/pix', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            total: total,
+            total: totalFinal,
             email: email,
             nome: nome,
           }),
@@ -91,32 +149,30 @@ export function CheckoutModal({ carrinho, total, onClose, onPedidoConcluido }) {
           throw new Error(dataPix.mensagem || 'Falha ao gerar cobrança PIX.');
         }
 
-        // Salva o pedido informando id do pagamento
         await fetch('http://localhost:3000/api/pedidos', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             cliente: clienteData,
             itens: carrinho,
-            total: total,
-            formaPagamento: 'PIX',
+            subtotal: total,
+            taxa_entrega: taxaEntrega,
+            total: totalFinal,
+            formaPagamento: 'PIX Online',
             pagamentoId: dataPix.pagamentoId,
             statusPagamento: dataPix.status || 'pending',
           }),
         });
 
-        // Exibe a tela com o QR Code
         setDadosPix({
           qrCodeBase64: dataPix.qrCodeBase64,
           pixCopiaECola: dataPix.pixCopiaECola,
           clienteData,
         });
-
       } else {
-        // FLUXO B: Dinheiro ou Maquininha de Cartão na entrega (Não gera Pix no MP)
         let descricaoPagamento = '';
         if (formaPagamento === 'dinheiro') {
-          descricaoPagamento = trocoPara 
+          descricaoPagamento = trocoPara
             ? `Dinheiro (Troco para R$ ${parseFloat(trocoPara).toFixed(2)})`
             : 'Dinheiro (Sem troco / Valor exato)';
         } else if (formaPagamento === 'credito') {
@@ -125,24 +181,23 @@ export function CheckoutModal({ carrinho, total, onClose, onPedidoConcluido }) {
           descricaoPagamento = 'Cartão de Débito (Maquininha na entrega)';
         }
 
-        // Salva o pedido no BD local
         await fetch('http://localhost:3000/api/pedidos', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             cliente: clienteData,
             itens: carrinho,
-            total: total,
+            subtotal: total,
+            taxa_entrega: taxaEntrega,
+            total: totalFinal,
             formaPagamento: descricaoPagamento,
             statusPagamento: 'Aguardando Pagamento na Entrega',
           }),
         });
 
-        // Abre direto o WhatsApp do restaurante
-        enviarWhatsApp(clienteData, carrinho, total, descricaoPagamento);
+        enviarWhatsApp(clienteData, carrinho, totalFinal, descricaoPagamento);
         if (onPedidoConcluido) onPedidoConcluido();
       }
-
     } catch (err) {
       alert('Erro ao processar pedido: ' + err.message);
     } finally {
@@ -160,18 +215,19 @@ export function CheckoutModal({ carrinho, total, onClose, onPedidoConcluido }) {
 
   const handleConcluirEWhatsApp = () => {
     if (dadosPix?.clienteData) {
-      enviarWhatsApp(dadosPix.clienteData, carrinho, total, 'PIX Mercado Pago');
+      enviarWhatsApp(dadosPix.clienteData, carrinho, totalFinal, 'PIX Online (Mercado Pago)');
     }
     if (onPedidoConcluido) onPedidoConcluido();
   };
 
   const enviarWhatsApp = (cliente, itens, totalPedido, formaPagamentoTxt) => {
-    const numeroLanchonete = '5512999999999'; // Coloque o numero oficial da lanchonete
+    const numeroLanchonete = '5512999999999';
     let mensagem = `*NOVO PEDIDO - LANCHES DA JÚ*\n\n`;
     mensagem += `👤 *Cliente:* ${cliente.nome}\n`;
     mensagem += `📞 *Telefone:* ${cliente.telefone}\n`;
     if (cliente.email) mensagem += `📧 *E-mail:* ${cliente.email}\n`;
-    mensagem += `📍 *Endereço:* ${cliente.endereco}, ${cliente.bairro}\n`;
+    mensagem += `📍 *Endereço:* ${cliente.endereco}\n`;
+    mensagem += `🛵 *Bairro:* ${cliente.bairro} (Taxa: R$ ${Number(taxaEntrega).toFixed(2)})\n`;
     if (cliente.complemento) mensagem += `🏠 *Comp:* ${cliente.complemento}\n`;
     mensagem += `\n🛒 *ITENS:* \n`;
 
@@ -180,7 +236,9 @@ export function CheckoutModal({ carrinho, total, onClose, onPedidoConcluido }) {
       if (item.observacao) mensagem += `   ↳ _Obs: ${item.observacao}_\n`;
     });
 
-    mensagem += `\n💰 *TOTAL:* R$ ${Number(totalPedido).toFixed(2)}\n`;
+    mensagem += `\n💵 *Subtotal:* R$ ${Number(total).toFixed(2)}`;
+    mensagem += `\n🛵 *Taxa Entrega:* R$ ${Number(taxaEntrega).toFixed(2)}`;
+    mensagem += `\n💰 *TOTAL FINAL:* R$ ${Number(totalPedido).toFixed(2)}\n`;
     mensagem += `💳 *Forma de Pagamento:* ${formaPagamentoTxt}`;
 
     const url = `https://wa.me/${numeroLanchonete}?text=${encodeURIComponent(mensagem)}`;
@@ -196,10 +254,9 @@ export function CheckoutModal({ carrinho, total, onClose, onPedidoConcluido }) {
           <h2 className="text-xl font-bold text-gray-800">
             {dadosPix ? 'Pagamento via PIX 📱' : 'Finalizar Pedido 🛵'}
           </h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl font-bold">&times;</button>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl font-bold cursor-pointer">&times;</button>
         </div>
 
-        {/* FLUXO 1: FORMULÁRIO DE CADASTRO E SELEÇÃO DE PAGAMENTO */}
         {!dadosPix ? (
           <form onSubmit={handleFinalizarPedido} className="space-y-4">
             <div>
@@ -250,18 +307,40 @@ export function CheckoutModal({ carrinho, total, onClose, onPedidoConcluido }) {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* CAMPO DE SELEÇÃO DE BAIRRO COM TAXA */}
               <div>
-                <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Bairro</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Seu bairro"
-                  value={bairro}
-                  onChange={(e) => setBairro(e.target.value)}
-                  className="w-full p-3 border border-gray-300 rounded-xl text-base focus:ring-2 focus:ring-rose-500 outline-none"
-                />
+                <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Bairro / Região*</label>
+                {carregandoBairros ? (
+                  <div className="p-3 border border-gray-200 rounded-xl text-xs text-gray-400 bg-gray-50">
+                    Carregando bairros...
+                  </div>
+                ) : bairros.length > 0 ? (
+                  <select
+                    required
+                    value={bairroSelecionadoId}
+                    onChange={handleBairroChange}
+                    className="w-full p-3 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-rose-500 outline-none bg-white font-medium"
+                  >
+                    <option value="">Selecione seu bairro...</option>
+                    {bairros.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.bairro} — {Number(b.valor) === 0 ? 'Grátis' : `R$ ${Number(b.valor).toFixed(2)}`}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    required
+                    placeholder="Informe seu bairro"
+                    value={bairroNome}
+                    onChange={(e) => setBairroNome(e.target.value)}
+                    className="w-full p-3 border border-gray-300 rounded-xl text-base focus:ring-2 focus:ring-rose-500 outline-none"
+                  />
+                )}
               </div>
+
               <div>
                 <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Complemento</label>
                 <input
@@ -274,14 +353,14 @@ export function CheckoutModal({ carrinho, total, onClose, onPedidoConcluido }) {
               </div>
             </div>
 
-            {/* OPÇÃO DE FORMA DE PAGAMENTO */}
+            {/* FORMAS DE PAGAMENTO */}
             <div className="pt-2 border-t">
               <label className="block text-xs font-bold text-gray-600 uppercase mb-2">Forma de Pagamento</label>
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
                   onClick={() => setFormaPagamento('pix')}
-                  className={`p-3 rounded-xl font-bold text-sm border flex items-center justify-center gap-2 transition ${
+                  className={`p-3 rounded-xl font-bold text-sm border flex items-center justify-center gap-2 transition cursor-pointer ${
                     formaPagamento === 'pix'
                       ? 'bg-emerald-50 border-emerald-500 text-emerald-700 shadow-sm'
                       : 'border-gray-200 text-gray-600 hover:bg-gray-50'
@@ -293,7 +372,7 @@ export function CheckoutModal({ carrinho, total, onClose, onPedidoConcluido }) {
                 <button
                   type="button"
                   onClick={() => setFormaPagamento('dinheiro')}
-                  className={`p-3 rounded-xl font-bold text-sm border flex items-center justify-center gap-2 transition ${
+                  className={`p-3 rounded-xl font-bold text-sm border flex items-center justify-center gap-2 transition cursor-pointer ${
                     formaPagamento === 'dinheiro'
                       ? 'bg-emerald-50 border-emerald-500 text-emerald-700 shadow-sm'
                       : 'border-gray-200 text-gray-600 hover:bg-gray-50'
@@ -305,7 +384,7 @@ export function CheckoutModal({ carrinho, total, onClose, onPedidoConcluido }) {
                 <button
                   type="button"
                   onClick={() => setFormaPagamento('credito')}
-                  className={`p-3 rounded-xl font-bold text-sm border flex items-center justify-center gap-2 transition ${
+                  className={`p-3 rounded-xl font-bold text-sm border flex items-center justify-center gap-2 transition cursor-pointer ${
                     formaPagamento === 'credito'
                       ? 'bg-emerald-50 border-emerald-500 text-emerald-700 shadow-sm'
                       : 'border-gray-200 text-gray-600 hover:bg-gray-50'
@@ -317,7 +396,7 @@ export function CheckoutModal({ carrinho, total, onClose, onPedidoConcluido }) {
                 <button
                   type="button"
                   onClick={() => setFormaPagamento('debito')}
-                  className={`p-3 rounded-xl font-bold text-sm border flex items-center justify-center gap-2 transition ${
+                  className={`p-3 rounded-xl font-bold text-sm border flex items-center justify-center gap-2 transition cursor-pointer ${
                     formaPagamento === 'debito'
                       ? 'bg-emerald-50 border-emerald-500 text-emerald-700 shadow-sm'
                       : 'border-gray-200 text-gray-600 hover:bg-gray-50'
@@ -328,7 +407,6 @@ export function CheckoutModal({ carrinho, total, onClose, onPedidoConcluido }) {
               </div>
             </div>
 
-            {/* CAMPO CONDICIONAL PARA TROCO */}
             {formaPagamento === 'dinheiro' && (
               <div className="bg-amber-50 border border-amber-200 p-3 rounded-xl">
                 <label className="block text-xs font-bold text-amber-800 uppercase mb-1">
@@ -337,7 +415,7 @@ export function CheckoutModal({ carrinho, total, onClose, onPedidoConcluido }) {
                 <input
                   type="number"
                   step="0.01"
-                  placeholder={`Ex: ${(Number(total) + 10).toFixed(2)}`}
+                  placeholder={`Ex: ${(Number(totalFinal) + 10).toFixed(2)}`}
                   value={trocoPara}
                   onChange={(e) => setTrocoPara(e.target.value)}
                   className="w-full p-2.5 bg-white border border-amber-300 rounded-lg text-base focus:ring-2 focus:ring-amber-500 outline-none"
@@ -345,27 +423,39 @@ export function CheckoutModal({ carrinho, total, onClose, onPedidoConcluido }) {
               </div>
             )}
 
-            <div className="pt-4 border-t mt-4">
-              <div className="flex justify-between text-lg font-extrabold mb-4 text-gray-800">
-                <span>Total:</span>
-                <span className="text-rose-600">R$ {Number(total).toFixed(2)}</span>
+            {/* RESUMO DETALHADO DO VALOR COM TAXA */}
+            <div className="pt-3 border-t mt-4 bg-gray-50 p-3.5 rounded-xl border border-gray-200/70 space-y-1 text-xs">
+              <div className="flex justify-between text-gray-600">
+                <span>Subtotal dos Itens:</span>
+                <span className="font-semibold">R$ {Number(total).toFixed(2)}</span>
               </div>
-
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full bg-emerald-600 text-white py-3.5 rounded-xl font-bold text-base hover:bg-emerald-700 transition shadow-md active:scale-[0.98] disabled:opacity-50"
-              >
-                {loading
-                  ? 'Processando...'
-                  : formaPagamento === 'pix'
-                  ? 'Gerar PIX e Continuar 🚀'
-                  : 'Enviar Pedido para o WhatsApp 🚀'}
-              </button>
+              <div className="flex justify-between text-gray-600">
+                <span>Taxa de Entrega ({bairroNome || 'não selecionado'}):</span>
+                <span className="font-bold text-rose-600">
+                  {bairroNome ? (taxaEntrega === 0 ? 'Grátis' : `R$ ${taxaEntrega.toFixed(2)}`) : 'Selecione o bairro'}
+                </span>
+              </div>
+              <hr className="border-gray-200 my-1" />
+              <div className="flex justify-between text-base font-extrabold text-gray-900">
+                <span>Total Final:</span>
+                <span className="text-emerald-600">R$ {totalFinal.toFixed(2)}</span>
+              </div>
             </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-emerald-600 text-white py-3.5 rounded-xl font-bold text-base hover:bg-emerald-700 transition shadow-md active:scale-[0.98] disabled:opacity-50 cursor-pointer"
+            >
+              {loading
+                ? 'Processando...'
+                : formaPagamento === 'pix'
+                ? 'Gerar PIX e Continuar 🚀'
+                : 'Enviar Pedido para o WhatsApp 🚀'}
+            </button>
           </form>
         ) : (
-          /* FLUXO 2: TELA DO QR CODE PIX */
+          /* TELA DE PIX */
           <div className="flex flex-col items-center text-center py-2 space-y-4">
             <p className="text-sm font-medium text-gray-600">
               Escaneie o QR Code abaixo no app do seu banco para pagar:
@@ -375,7 +465,7 @@ export function CheckoutModal({ carrinho, total, onClose, onPedidoConcluido }) {
               <img
                 src={`data:image/jpeg;base64,${dadosPix.qrCodeBase64}`}
                 alt="QR Code PIX Mercado Pago"
-                className="w-56 h-56 object-contain rounded-lg"
+                className="w-56 h-56 object-contain rounded-lg mx-auto"
               />
             </div>
 
@@ -384,7 +474,7 @@ export function CheckoutModal({ carrinho, total, onClose, onPedidoConcluido }) {
               <button
                 type="button"
                 onClick={handleCopiarPix}
-                className="w-full bg-slate-800 text-white py-3 rounded-xl font-bold text-sm hover:bg-slate-900 transition flex items-center justify-center gap-2 active:scale-[0.98]"
+                className="w-full bg-slate-800 text-white py-3 rounded-xl font-bold text-sm hover:bg-slate-900 transition flex items-center justify-center gap-2 active:scale-[0.98] cursor-pointer"
               >
                 {copiado ? '✅ Chave PIX Copiada!' : '📋 Copiar Código Pix Copia e Cola'}
               </button>
@@ -394,7 +484,7 @@ export function CheckoutModal({ carrinho, total, onClose, onPedidoConcluido }) {
               <button
                 type="button"
                 onClick={handleConcluirEWhatsApp}
-                className="w-full bg-emerald-600 text-white py-3.5 rounded-xl font-bold text-base hover:bg-emerald-700 transition shadow-md active:scale-[0.98]"
+                className="w-full bg-emerald-600 text-white py-3.5 rounded-xl font-bold text-base hover:bg-emerald-700 transition shadow-md active:scale-[0.98] cursor-pointer"
               >
                 Enviar Pedido para o WhatsApp 📲
               </button>
