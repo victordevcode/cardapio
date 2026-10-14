@@ -586,3 +586,82 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`✅ Servidor backend rodando na porta ${PORT}`);
 });
+
+// ==================== RELATÓRIOS E MÉTRICAS ====================
+
+app.get('/api/relatorios', autenticarToken, async (req, res) => {
+  const { data_inicio, data_fim } = req.query;
+
+  try {
+    let query = `
+      SELECT 
+        id,
+        created_at,
+        total,
+        subtotal,
+        taxa_entrega,
+        bairro,
+        forma_pagamento,
+        status_pagamento
+      FROM pedidos
+      WHERE 1=1
+    `;
+
+    const params = [];
+
+    if (data_inicio) {
+      params.push(data_inicio);
+      query += ` AND created_at >= $${params.length}`;
+    }
+
+    if (data_fim) {
+      params.push(`${data_fim} 23:59:59`);
+      query += ` AND created_at <= $${params.length}`;
+    }
+
+    query += ` ORDER BY created_at DESC`;
+
+    const resultado = await pool.query(query, params);
+    const pedidos = resultado.rows;
+
+    // Métricas Calculadas
+    const totalPedidos = pedidos.length;
+    const faturamentoProdutos = pedidos.reduce((acc, p) => acc + Number(p.subtotal || p.total || 0), 0);
+    const totalTaxasEntrega = pedidos.reduce((acc, p) => acc + Number(p.taxa_entrega || 0), 0);
+    const faturamentoTotal = faturamentoProdutos + totalTaxasEntrega;
+    const ticketMedio = totalPedidos > 0 ? faturamentoTotal / totalPedidos : 0;
+
+    // Agrupamento por Bairro
+    const porBairro = {};
+    pedidos.forEach(p => {
+      const b = p.bairro || 'Não informado';
+      if (!porBairro[b]) porBairro[b] = { qtd: 0, totalTaxas: 0 };
+      porBairro[b].qtd += 1;
+      porBairro[b].totalTaxas += Number(p.taxa_entrega || 0);
+    });
+
+    // Agrupamento por Forma de Pagamento
+    const porFormaPagamento = {};
+    pedidos.forEach(p => {
+      const fp = p.forma_pagamento || 'Outros';
+      porFormaPagamento[fp] = (porFormaPagamento[fp] || 0) + 1;
+    });
+
+    res.json({
+      resumo: {
+        totalPedidos,
+        faturamentoProdutos,
+        totalTaxasEntrega,
+        faturamentoTotal,
+        ticketMedio
+      },
+      porBairro,
+      porFormaPagamento,
+      pedidos
+    });
+
+  } catch (err) {
+    console.error('Erro ao gerar relatório:', err);
+    res.status(500).json({ mensagem: 'Erro ao gerar relatório' });
+  }
+});

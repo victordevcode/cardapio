@@ -5,6 +5,7 @@ import CadastroCardapio from './CadastroCardapio';
 import QuadroKanbanPedidos from './QuadroKanbanPedidos';
 import CardapioCliente from './CardapioCliente';
 import GestaoTaxas from './GestaoTaxas';
+import RelatorioGeral from './RelatorioGeral';
 
 export default function App() {
   const [autenticado, setAutenticado] = useState(false);
@@ -68,68 +69,79 @@ export default function App() {
           </button>
         </header>
 
-        {/* ================= 2. BOTÕES DE NAVEGAÇÃO (EXIBIDOS POR PADRÃO) ================= */}
-        {menuVisivel && (
-          <nav className="bg-white p-2.5 rounded-xl shadow-sm border border-gray-200/80 flex flex-wrap items-center justify-between gap-2 animate-fade-in">
-            <div className="flex flex-wrap gap-2 items-center">
-              <button
-                onClick={() => setTelaAtual('listagem')}
-                className={`px-4 py-2 text-sm font-bold rounded-lg transition-all cursor-pointer ${
-                  telaAtual === 'listagem'
-                    ? 'bg-rose-600 text-white shadow-sm'
-                    : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-200/60'
-                }`}
-              >
-                📋 Produtos
-              </button>
+       {/* ================= 2. BOTÕES DE NAVEGAÇÃO ================= */}
+{menuVisivel && (
+  <nav className="bg-white p-2.5 rounded-xl shadow-sm border border-gray-200/80 flex flex-wrap items-center justify-between gap-2 animate-fade-in">
+    <div className="flex flex-wrap gap-2 items-center">
+      <button
+        onClick={() => setTelaAtual('listagem')}
+        className={`px-4 py-2 text-sm font-bold rounded-lg transition-all cursor-pointer ${
+          telaAtual === 'listagem'
+            ? 'bg-rose-600 text-white shadow-sm'
+            : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-200/60'
+        }`}
+      >
+        📋 Produtos
+      </button>
 
-              <button
-                onClick={() => setTelaAtual('cadastro')}
-                className={`px-4 py-2 text-sm font-bold rounded-lg transition-all cursor-pointer ${
-                  telaAtual === 'cadastro'
-                    ? 'bg-rose-600 text-white shadow-sm'
-                    : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-200/60'
-                }`}
-              >
-                ➕ Novo
-              </button>
+      <button
+        onClick={() => setTelaAtual('cadastro')}
+        className={`px-4 py-2 text-sm font-bold rounded-lg transition-all cursor-pointer ${
+          telaAtual === 'cadastro'
+            ? 'bg-rose-600 text-white shadow-sm'
+            : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-200/60'
+        }`}
+      >
+        ➕ Novo
+      </button>
 
-              <button
-                onClick={() => setTelaAtual('kanban')}
-                className={`px-4 py-2 text-sm font-bold rounded-lg transition-all cursor-pointer ${
-                  telaAtual === 'kanban'
-                    ? 'bg-rose-600 text-white shadow-sm'
-                    : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-200/60'
-                }`}
-              >
-                📊 Cozinha
-              </button>
+      <button
+        onClick={() => setTelaAtual('kanban')}
+        className={`px-4 py-2 text-sm font-bold rounded-lg transition-all cursor-pointer ${
+          telaAtual === 'kanban'
+            ? 'bg-rose-600 text-white shadow-sm'
+            : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-200/60'
+        }`}
+      >
+        📊 Cozinha
+      </button>
 
-              <button
-                onClick={() => setTelaAtual('taxas')}
-                className={`px-4 py-2 text-sm font-bold rounded-lg transition-all cursor-pointer ${
-                  telaAtual === 'taxas'
-                    ? 'bg-rose-600 text-white shadow-sm'
-                    : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-200/60'
-                }`}
-              >
-                🛵 Taxas
-              </button>
-            </div>
+      <button
+        onClick={() => setTelaAtual('taxas')}
+        className={`px-4 py-2 text-sm font-bold rounded-lg transition-all cursor-pointer ${
+          telaAtual === 'taxas'
+            ? 'bg-rose-600 text-white shadow-sm'
+            : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-200/60'
+        }`}
+      >
+        🛵 Taxas
+      </button>
 
-            {/* Botão de abrir/ver o cardápio do cliente */}
-            <button
-              onClick={() => setTelaAtual('cardapio')}
-              className={`px-4 py-2 text-sm font-bold rounded-lg transition-all cursor-pointer ${
-                telaAtual === 'cardapio'
-                  ? 'bg-emerald-500 text-white shadow-sm'
-                  : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200'
-              }`}
-            >
-              📱 Cardápio Cliente
-            </button>
-          </nav>
-        )}
+      <button
+        onClick={() => setTelaAtual('relatorios')}
+        className={`px-4 py-2 text-sm font-bold rounded-lg transition-all cursor-pointer ${
+          telaAtual === 'relatorios'
+            ? 'bg-rose-600 text-white shadow-sm'
+            : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-200/60'
+        }`}
+      >
+        📊 Relatórios
+      </button>
+    </div>
+
+    {/* Botão para ver o cardápio do cliente */}
+    <button
+      onClick={() => setTelaAtual('cardapio')}
+      className={`px-4 py-2 text-sm font-bold rounded-lg transition-all cursor-pointer ${
+        telaAtual === 'cardapio'
+          ? 'bg-emerald-500 text-white shadow-sm'
+          : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200'
+      }`}
+    >
+      📱 Cardápio Cliente
+    </button>
+  </nav>
+)}
 
         {/* ================= 3. CONTEÚDO DA TELA ATIVA ================= */}
         <main className="pt-2">
@@ -140,6 +152,7 @@ export default function App() {
           {telaAtual === 'cardapio' && (
             <CardapioCliente aoVoltar={() => setTelaAtual('listagem')} />
           )}
+          {telaAtual === 'relatorios' && <RelatorioGeral />}
         </main>
 
       </div>
