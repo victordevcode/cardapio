@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from './services/supabase';
+import { PedidoTimer } from './PedidoTimer';
 
 const COLUNAS = [
   { id: 'pendente', titulo: '📥 Novos Pedidos', corHeader: 'bg-amber-500', bgColuna: 'bg-amber-50/30' },
   { id: 'em_preparo', titulo: '👨‍🍳 Em Preparo', corHeader: 'bg-blue-500', bgColuna: 'bg-blue-50/30' },
   { id: 'pronto', titulo: '✅ Prontos', corHeader: 'bg-emerald-500', bgColuna: 'bg-emerald-50/30' },
-  { id: 'entregue', titulo: '🚀 Entregues / Finalizados', corHeader: 'bg-gray-400', bgColuna: 'bg-gray-50/30' },
+  { id: 'entregue', titulo: '🚀 Entregues / Finalizar', corHeader: 'bg-gray-400', bgColuna: 'bg-gray-50/30' },
 ];
 
 export default function QuadroKanbanPedidos({ aoAbrirCardapio }) {
@@ -14,10 +15,8 @@ export default function QuadroKanbanPedidos({ aoAbrirCardapio }) {
   const [erro, setErro] = useState('');
   const [pedidoArrastadoId, setPedidoArrastadoId] = useState(null);
 
-
-  //------Buscado de Pedidos--------//
-
-const buscarPedidos = useCallback(async () => {
+  // ------Buscado de Pedidos--------//
+  const buscarPedidos = useCallback(async () => {
     try {
       // 1. Busca os pedidos
       const { data: dadosPedidos, error: errPedidos } = await supabase
@@ -33,9 +32,6 @@ const buscarPedidos = useCallback(async () => {
         .select('*');
 
       if (errItens) console.error('Erro ao buscar itens:', errItens.message);
-
-      console.log('📌 Pedidos:', dadosPedidos);
-      console.log('📌 Itens:', dadosItens);
 
       // 3. Junta os dados independente do tipo do ID
       const pedidosComItens = (dadosPedidos || []).map((pedido) => {
@@ -118,6 +114,11 @@ const buscarPedidos = useCallback(async () => {
     setPedidoArrastadoId(null);
   };
 
+  // 💡 FILTRO: Oculta pedidos finalizados para que eles saiam do Kanban, mas fiquem salvos para o relatório
+  const pedidosAtivos = pedidos.filter(
+    (p) => !p.status || p.status.toLowerCase() !== 'finalizado'
+  );
+
   return (
     <div className="max-w-7xl mx-auto p-6 space-y-6 min-h-screen">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -129,7 +130,7 @@ const buscarPedidos = useCallback(async () => {
         <div className="flex gap-2">
           <button
             onClick={buscarPedidos}
-            className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-lg transition-colors"
+            className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-lg transition-colors cursor-pointer"
           >
             🔄 Atualizar
           </button>
@@ -137,7 +138,7 @@ const buscarPedidos = useCallback(async () => {
           {aoAbrirCardapio && (
             <button
               onClick={aoAbrirCardapio}
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg shadow-sm transition-colors"
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg shadow-sm transition-colors cursor-pointer"
             >
               🍔 Ir ao Cardápio
             </button>
@@ -156,7 +157,7 @@ const buscarPedidos = useCallback(async () => {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-start">
           {COLUNAS.map((col, colIndex) => {
-            const pedidosDaColuna = pedidos.filter(
+            const pedidosDaColuna = pedidosAtivos.filter(
               (p) => (p.status ? p.status.toLowerCase() : 'pendente') === col.id
             );
 
@@ -184,6 +185,7 @@ const buscarPedidos = useCallback(async () => {
                       const proximaColuna = COLUNAS[colIndex + 1];
                       const colunaAnterior = COLUNAS[colIndex - 1];
                       const listaItens = ped.pedido_itens || ped.itens_pedido || [];
+                      const isColunaFinal = col.id === 'entregue';
 
                       return (
                         <div
@@ -194,14 +196,19 @@ const buscarPedidos = useCallback(async () => {
                             pedidoArrastadoId === ped.id ? 'opacity-40 scale-95' : 'opacity-100'
                           }`}
                         >
-                          {/* Número do pedido e Cliente */}
-                          <div className="flex items-baseline justify-between mb-1">
-                            <span className="font-extrabold text-gray-900 text-base">
-                              #{ped.id}
-                            </span>
-                            <span className="text-xs text-gray-600 font-medium truncate max-w-[150px]">
-                              👤 {ped.cliente_nome || 'Balcão'}
-                            </span>
+                          {/* Número do pedido, Cliente e Timer */}
+                          <div className="flex items-center justify-between mb-1">
+                            <div>
+                              <span className="font-extrabold text-gray-900 text-base">
+                                #{ped.id}
+                              </span>
+                              <span className="text-xs text-gray-600 font-medium ml-2 truncate max-w-[120px] inline-block align-middle">
+                                👤 {ped.cliente_nome || 'Balcão'}
+                              </span>
+                            </div>
+                            <div className="bg-white px-2 py-0.5 rounded border border-gray-200 shadow-sm">
+                              <PedidoTimer createdAt={ped.created_at} />
+                            </div>
                           </div>
 
                           {ped.cliente_telefone && (
@@ -232,7 +239,6 @@ const buscarPedidos = useCallback(async () => {
                                     key={item.id || idx} 
                                     className="border-b border-gray-200/60 pb-2 last:border-0 last:pb-0"
                                   >
-                                    {/* Quantidade e Descrição */}
                                     <div className="flex items-start gap-1.5 text-sm font-semibold text-gray-800">
                                       <span className="inline-flex items-center justify-center bg-indigo-100 text-indigo-700 font-extrabold px-1.5 py-0.5 rounded text-xs min-w-[24px]">
                                         {item.quantidade || 1}x
@@ -242,7 +248,6 @@ const buscarPedidos = useCallback(async () => {
                                       </span>
                                     </div>
 
-                                    {/* Observação individual do Item */}
                                     {textoObs && (
                                       <div className="mt-1 text-[11px] text-amber-800 bg-amber-50 px-2 py-1 rounded border border-amber-200/70 font-medium flex items-start gap-1">
                                         <span>✏️</span>
@@ -290,7 +295,7 @@ const buscarPedidos = useCallback(async () => {
                             {colunaAnterior ? (
                               <button
                                 onClick={() => moverStatus(ped.id, colunaAnterior.id)}
-                                className="px-2.5 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-700 text-xs font-semibold rounded-lg transition-colors"
+                                className="px-2.5 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-700 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
                                 title="Voltar etapa"
                               >
                                 ⬅ Voltar
@@ -299,14 +304,25 @@ const buscarPedidos = useCallback(async () => {
                               <div />
                             )}
 
-                            {proximaColuna && (
+                            {/* Se for a última coluna (Entregues), mostra o botão verde de Finalizar que remove o card do Kanban */}
+                            {isColunaFinal ? (
                               <button
-                                onClick={() => moverStatus(ped.id, proximaColuna.id)}
-                                className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg transition-colors ml-auto"
-                                title="Avançar etapa"
+                                onClick={() => moverStatus(ped.id, 'finalizado')}
+                                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition-colors shadow-sm cursor-pointer ml-auto"
+                                title="Concluir e remover da cozinha"
                               >
-                                Avançar ➡
+                                ✅ Concluir
                               </button>
+                            ) : (
+                              proximaColuna && (
+                                <button
+                                  onClick={() => moverStatus(ped.id, proximaColuna.id)}
+                                  className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg transition-colors ml-auto cursor-pointer"
+                                  title="Avançar etapa"
+                                >
+                                  Avançar ➡
+                                </button>
+                              )
                             )}
                           </div>
                         </div>

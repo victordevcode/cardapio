@@ -36,8 +36,8 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4 font-sans">
-      <div className="max-w-6xl mx-auto space-y-4">
+    <div className="min-h-screen bg-gray-50 p-4 font-sans flex flex-col justify-between">
+      <div className="max-w-6xl mx-auto space-y-4 w-full">
 
         {/* ================= 1. CABEÇALHO FIXO COM A LOGO ================= */}
         <header className="bg-gradient-to-r from-slate-900 to-slate-800 rounded-2xl text-white p-4 shadow-md flex flex-col sm:flex-row items-center justify-between gap-4">
@@ -156,6 +156,23 @@ export default function App() {
         </main>
 
       </div>
+
+      {/* ================= 4. RODAPÉ DE CONTROLE E VERSÃO ================= */}
+      <RodapéVersao />
     </div>
+  );
+}
+
+export function RodapéVersao() {
+  return (
+    <footer className="w-full py-4 text-center text-xs text-gray-400 border-t border-gray-200 mt-8 bg-white/50 backdrop-blur-sm">
+      <div className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-4 max-w-6xl mx-auto px-4">
+        <span>Desenvolvido com 💙 por <strong>Victor Hugo</strong></span>
+        <span className="hidden sm:inline">•</span>
+        <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-md font-mono text-[11px] font-semibold border border-gray-200">
+          v1.0.0 — Produção
+        </span>
+      </div>
+    </footer>
   );
 }

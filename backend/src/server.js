@@ -7,7 +7,7 @@ const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const { MercadoPagoConfig, Payment } = require('mercadopago');
+const { MercadoPagoConfig, Payment, Preference } = require('mercadopago');
 
 const client = new MercadoPagoConfig({ 
   accessToken: process.env.MERCADOPAGO_ACCESS_TOKEN 
@@ -364,6 +364,149 @@ app.post('/api/pagamento/pix', async (req, res) => {
   }
 });
 
+// Importe a Preference no topo do seu server.js caso ainda não tenha feito:
+// const { Payment, Preference } = require('mercadopago');
+
+
+/* ====================
+   MERCADO PAGO / CARTÃO DE CRÉDITO
+   CHECKOUT PRO
+==================== */
+
+app.post('/api/pagamento/cartao-link', async (req, res) => {
+  try {
+    const {
+      pedido_id,
+      total,
+      valor_total,
+      valor,
+      cliente,
+      cliente_nome,
+      cliente_email,
+      email
+    } = req.body;
+
+    const clienteData = cliente || {};
+
+    const valorCobranca = Number(
+      total ?? valor_total ?? valor ?? 0
+    );
+
+    if (!Number.isFinite(valorCobranca) || valorCobranca <= 0) {
+      return res.status(400).json({
+        success: false,
+        mensagem: 'O valor do pagamento deve ser maior que zero.'
+      });
+    }
+
+    const nomeCompleto = String(
+      cliente_nome || clienteData.nome || 'Cliente'
+    ).trim();
+
+    const partesNome = nomeCompleto.split(/\s+/);
+
+    const firstName = partesNome[0] || 'Cliente';
+    const lastName = partesNome.slice(1).join(' ') || 'Cliente';
+
+    const emailCliente = String(
+      cliente_email || email || clienteData.email || ''
+    ).trim();
+
+    if (
+      !emailCliente ||
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailCliente)
+    ) {
+      return res.status(400).json({
+        success: false,
+        mensagem: 'Informe um e-mail válido para o pagamento.'
+      });
+    }
+
+    const preference = new Preference(client);
+
+    const response = await preference.create({
+  body: {
+    items: [
+      {
+        id: pedido_id ? String(pedido_id) : 'lanches-da-ju',
+        title: `Pedido Lanches da Ju #${pedido_id || ''}`,
+        quantity: 1,
+        unit_price: Number(valorCobranca.toFixed(2)),
+        currency_id: 'BRL'
+      }
+    ],
+
+    payer: {
+      email: emailCliente,
+      name: firstName,
+      surname: lastName
+    },
+
+    payment_methods: {
+      excluded_payment_types: [
+        { id: 'ticket' },
+        { id: 'bank_transfer' }
+      ],
+      installments: 12
+    },
+
+    back_urls: {
+      success: 'https://www.mercadopago.com.br',
+      failure: 'https://www.mercadopago.com.br',
+      pending: 'https://www.mercadopago.com.br'
+    },
+
+    auto_return: 'approved',
+
+    external_reference: pedido_id
+      ? String(pedido_id)
+      : undefined
+  }
+});
+    // Salva o ID da preferência no pedido para rastreamento.
+    // Este ID não é o ID definitivo do pagamento.
+    if (pedido_id) {
+      await pool.query(
+        `UPDATE pedidos
+         SET pagamento_id = $1
+         WHERE id = $2`,
+        [`preference:${response.id}`, pedido_id]
+      );
+    }
+
+    console.log(
+      `Link de cartão gerado. Preference ID: ${response.id}`
+    );
+
+    return res.json({
+      success: true,
+      preferenceId: response.id,
+      linkPagamento: response.init_point,
+      linkSandbox: response.sandbox_init_point,
+      pedidoId: pedido_id || null
+    });
+
+  } catch (err) {
+    console.error(
+      'Erro ao gerar link de cartão:',
+      err.message
+    );
+
+    if (err.api_response?.body) {
+      console.error(
+        'Detalhes Mercado Pago:',
+        JSON.stringify(err.api_response.body, null, 2)
+      );
+    }
+
+    return res.status(500).json({
+      success: false,
+      mensagem: 'Não foi possível gerar o link de pagamento.',
+      erro: err.message
+    });
+  }
+});
+
 // ==================== WEBHOOK MERCADO PAGO ====================
 app.post('/api/webhook/mercadopago', async (req, res) => {
   try {
@@ -587,51 +730,40 @@ app.listen(PORT, () => {
   console.log(`✅ Servidor backend rodando na porta ${PORT}`);
 });
 
-// ==================== RELATÓRIOS E MÉTRICAS ====================
+// ==================== PEDIDOS KANBAN (Apenas Ativos) ====================
+
+app.get('/api/pedidos/kanban', async (req, res) => {
+  try {
+    const resultado = await pool.query(`
+      SELECT * FROM pedidos 
+      WHERE status IS NULL OR status NOT IN ('Finalizado', 'Concluído', 'Cancelado')
+      ORDER BY id ASC
+    `);
+    res.json(resultado.rows);
+  } catch (err) {
+    console.error('Erro ao buscar pedidos do Kanban:', err);
+    res.status(500).json({ mensagem: 'Erro ao buscar pedidos do Kanban' });
+  }
+});
+
+// ==================== RELATÓRIOS E MÉTRICAS (Todos os Pedidos) ====================
 
 app.get('/api/relatorios', autenticarToken, async (req, res) => {
-  const { data_inicio, data_fim } = req.query;
-
   try {
-    let query = `
-      SELECT 
-        id,
-        created_at,
-        total,
-        subtotal,
-        taxa_entrega,
-        bairro,
-        forma_pagamento,
-        status_pagamento
-      FROM pedidos
-      WHERE 1=1
-    `;
-
-    const params = [];
-
-    if (data_inicio) {
-      params.push(data_inicio);
-      query += ` AND created_at >= $${params.length}`;
-    }
-
-    if (data_fim) {
-      params.push(`${data_fim} 23:59:59`);
-      query += ` AND created_at <= $${params.length}`;
-    }
-
-    query += ` ORDER BY created_at DESC`;
-
-    const resultado = await pool.query(query, params);
+    const resultado = await pool.query('SELECT * FROM pedidos ORDER BY id DESC');
     const pedidos = resultado.rows;
 
-    // Métricas Calculadas
     const totalPedidos = pedidos.length;
-    const faturamentoProdutos = pedidos.reduce((acc, p) => acc + Number(p.subtotal || p.total || 0), 0);
+    
+    const faturamentoTotal = pedidos.reduce((acc, p) => {
+      const val = Number(p.valor_total || p.total || 0);
+      return acc + val;
+    }, 0);
+    
     const totalTaxasEntrega = pedidos.reduce((acc, p) => acc + Number(p.taxa_entrega || 0), 0);
-    const faturamentoTotal = faturamentoProdutos + totalTaxasEntrega;
+    const faturamentoProdutos = faturamentoTotal - totalTaxasEntrega;
     const ticketMedio = totalPedidos > 0 ? faturamentoTotal / totalPedidos : 0;
 
-    // Agrupamento por Bairro
     const porBairro = {};
     pedidos.forEach(p => {
       const b = p.bairro || 'Não informado';
@@ -640,10 +772,9 @@ app.get('/api/relatorios', autenticarToken, async (req, res) => {
       porBairro[b].totalTaxas += Number(p.taxa_entrega || 0);
     });
 
-    // Agrupamento por Forma de Pagamento
     const porFormaPagamento = {};
     pedidos.forEach(p => {
-      const fp = p.forma_pagamento || 'Outros';
+      const fp = p.forma_pagamento || p.formaPagamento || 'Outros';
       porFormaPagamento[fp] = (porFormaPagamento[fp] || 0) + 1;
     });
 

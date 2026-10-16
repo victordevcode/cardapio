@@ -169,14 +169,51 @@ export function CheckoutModal({ carrinho, total, onClose, onPedidoConcluido }) {
           pixCopiaECola: dataPix.pixCopiaECola,
           clienteData,
         });
+
+      } else if (formaPagamento === 'credito') {
+        // 💳 CHAMA A ROTA DO SERVER.JS PARA GERAR O LINK DE CARTÃO (CHECKOUT PRO)
+        const resCartao = await fetch('http://localhost:3000/api/pagamento/cartao-link', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            total: totalFinal,
+            email: email,
+            cliente_nome: nome,
+            cliente: clienteData,
+          }),
+        });
+
+        const dataCartao = await resCartao.json();
+
+        if (!resCartao.ok || !dataCartao.success) {
+          throw new Error(dataCartao.mensagem || 'Falha ao gerar link de pagamento com cartão.');
+        }
+
+        // Salva o pedido no banco com o status pendente/aguardando
+        await fetch('http://localhost:3000/api/pedidos', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            cliente: clienteData,
+            itens: carrinho,
+            subtotal: total,
+            taxa_entrega: taxaEntrega,
+            total: totalFinal,
+            formaPagamento: 'Cartão de Crédito Online',
+            pagamentoId: dataCartao.preferenceId,
+            statusPagamento: 'pending',
+          }),
+        });
+
+        // Redireciona o cliente para a página segura do Mercado Pago
+        window.location.href = dataCartao.linkPagamento;
+
       } else {
         let descricaoPagamento = '';
         if (formaPagamento === 'dinheiro') {
           descricaoPagamento = trocoPara
             ? `Dinheiro (Troco para R$ ${parseFloat(trocoPara).toFixed(2)})`
             : 'Dinheiro (Sem troco / Valor exato)';
-        } else if (formaPagamento === 'credito') {
-          descricaoPagamento = 'Cartão de Crédito (Maquininha na entrega)';
         } else if (formaPagamento === 'debito') {
           descricaoPagamento = 'Cartão de Débito (Maquininha na entrega)';
         }
@@ -390,7 +427,7 @@ export function CheckoutModal({ carrinho, total, onClose, onPedidoConcluido }) {
                       : 'border-gray-200 text-gray-600 hover:bg-gray-50'
                   }`}
                 >
-                  💳 Crédito
+                  💳 Crédito Online
                 </button>
 
                 <button
@@ -402,7 +439,7 @@ export function CheckoutModal({ carrinho, total, onClose, onPedidoConcluido }) {
                       : 'border-gray-200 text-gray-600 hover:bg-gray-50'
                   }`}
                 >
-                  💳 Débito
+                  💳 Débito (Entrega)
                 </button>
               </div>
             </div>
@@ -451,6 +488,8 @@ export function CheckoutModal({ carrinho, total, onClose, onPedidoConcluido }) {
                 ? 'Processando...'
                 : formaPagamento === 'pix'
                 ? 'Gerar PIX e Continuar 🚀'
+                : formaPagamento === 'credito'
+                ? 'Ir para Pagamento com Cartão 💳'
                 : 'Enviar Pedido para o WhatsApp 🚀'}
             </button>
           </form>
