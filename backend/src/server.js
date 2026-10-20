@@ -301,53 +301,74 @@ app.get('/api/clientes/:telefone', async (req, res) => {
   }
 });
 
-// ==================== CONFIGURAÇÕES DE PAGAMENTO ====================
+// ==================== CONFIGURAÇÕES DE PAGAMENTO (MÚLTIPLAS CONTAS) ====================
 
-// Salvar ou atualizar credenciais do Mercado Pago
-app.post('/api/configuracoes/pagamento', async (req, res) => {
-  try {
-    const { token_acesso, chave_publica } = req.body;
-
-    const resultado = await pool.query(
-      `INSERT INTO configuracoes_pagamento (id, provedor, token_acesso, chave_publica, atualizado_em)
-       VALUES (1, 'mercadopago', $1, $2, NOW())
-       ON CONFLICT (id) 
-       DO UPDATE SET 
-         token_acesso = EXCLUDED.token_acesso,
-         chave_publica = EXCLUDED.chave_publica,
-         atualizado_em = NOW()
-       RETURNING *`,
-      [token_acesso, chave_publica]
-    );
-
-    return res.status(200).json({ 
-      mensagem: 'Configurações salvas com sucesso!',
-      configuracao: resultado.rows[0]
-    });
-  } catch (error) {
-    console.error('Erro ao salvar configurações de pagamento:', error);
-    return res.status(500).json({ erro: error.message });
-  }
-});
-
-// Buscar credenciais salvas
+// 1. Listar todas as configurações de pagamento cadastradas
 app.get('/api/configuracoes/pagamento', async (req, res) => {
   try {
     const resultado = await pool.query(
-      'SELECT * FROM configuracoes_pagamento WHERE id = 1'
+      'SELECT id, provedor, descricao, chave_publica, atualizado_em FROM configuracoes_pagamento ORDER BY id ASC'
     );
-
-    if (resultado.rows.length === 0) {
-      return res.status(200).json({ token_acesso: '', chave_publica: '' });
-    }
-
-    return res.status(200).json(resultado.rows[0]);
+    return res.status(200).json(resultado.rows);
   } catch (error) {
-    console.error('Erro ao buscar configurações de pagamento:', error);
+    console.error('Erro ao listar configurações de pagamento:', error);
     return res.status(500).json({ erro: error.message });
   }
 });
 
+// 2. Buscar uma configuração específica por ID para edição
+app.get('/api/configuracoes/pagamento/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const resultado = await pool.query('SELECT * FROM configuracoes_pagamento WHERE id = $1', [id]);
+    
+    if (resultado.rows.length === 0) {
+      return res.status(404).json({ mensagem: 'Configuração não encontrada.' });
+    }
+    
+    return res.status(200).json(resultado.rows[0]);
+  } catch (error) {
+    console.error('Erro ao buscar configuração:', error);
+    return res.status(500).json({ erro: error.message });
+  }
+});
+
+// 3. Criar nova conta ou atualizar existente (se vier o ID)
+app.post('/api/configuracoes/pagamento', async (req, res) => {
+  try {
+    const { id, token_acesso, chave_publica, descricao } = req.body;
+
+    let resultado;
+    if (id) {
+      // Atualiza o registro existente
+      resultado = await pool.query(
+        `UPDATE configuracoes_pagamento 
+         SET token_acesso = COALESCE(NULLIF($1, ''), token_acesso), 
+             chave_publica = $2, 
+             descricao = $3, 
+             atualizado_em = NOW() 
+         WHERE id = $4 RETURNING *`,
+        [token_acesso, chave_publica, descricao, id]
+      );
+    } else {
+      // Insere um novo registro na tabela
+      resultado = await pool.query(
+        `INSERT INTO configuracoes_pagamento (provedor, token_acesso, chave_publica, descricao, atualizado_em)
+         VALUES ('mercadopago', $1, $2, $3, NOW())
+         RETURNING *`,
+        [token_acesso, chave_publica, descricao]
+      );
+    }
+
+    return res.status(200).json({ 
+      mensagem: 'Configuração salva com sucesso!',
+      configuracao: resultado.rows[0]
+    });
+  } catch (error) {
+    console.error('Erro ao salvar configuração de pagamento:', error);
+    return res.status(500).json({ erro: error.message });
+  }
+});
 // ==================== MERCADO PAGO / PIX REAL ====================
 
 app.post('/api/pagamento/pix', async (req, res) => {
