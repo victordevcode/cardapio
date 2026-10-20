@@ -6,6 +6,7 @@ import QuadroKanbanPedidos from './QuadroKanbanPedidos';
 import CardapioCliente from './CardapioCliente';
 import GestaoTaxas from './GestaoTaxas';
 import RelatorioGeral from './RelatorioGeral';
+import ContaBancaria from './ContaBancaria'; // 1. IMPORTAÇÃO DA TELA DE CONTA BANCÁRIA
 
 export default function App() {
   const [autenticado, setAutenticado] = useState(false);
@@ -127,6 +128,18 @@ export default function App() {
       >
         📊 Relatórios
       </button>
+
+      {/* 2. BOTÃO DE NAVEGAÇÃO PARA MERCADO PAGO / CONTA BANCÁRIA */}
+      <button
+        onClick={() => setTelaAtual('conta_bancaria')}
+        className={`px-4 py-2 text-sm font-bold rounded-lg transition-all cursor-pointer ${
+          telaAtual === 'conta_bancaria'
+            ? 'bg-rose-600 text-white shadow-sm'
+            : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-200/60'
+        }`}
+      >
+        💳 Mercado Pago
+      </button>
     </div>
 
     {/* Botão para ver o cardápio do cliente */}
@@ -153,6 +166,9 @@ export default function App() {
             <CardapioCliente aoVoltar={() => setTelaAtual('listagem')} />
           )}
           {telaAtual === 'relatorios' && <RelatorioGeral />}
+          
+          {/* 3. RENDERIZAÇÃO DA TELA DE CONTA BANCÁRIA / MERCADO PAGO */}
+          {telaAtual === 'conta_bancaria' && <ContaBancaria />}
         </main>
 
       </div>

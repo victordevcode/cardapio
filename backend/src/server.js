@@ -7,11 +7,11 @@ const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const { MercadoPagoConfig, Payment, Preference } = require('mercadopago');
+//const { MercadoPagoConfig, Payment, Preference } = require('mercadopago');
 
-const client = new MercadoPagoConfig({ 
-  accessToken: process.env.MERCADOPAGO_ACCESS_TOKEN 
-});
+//const client = new MercadoPagoConfig({ 
+// accessToken: process.env.MERCADOPAGO_ACCESS_TOKEN 
+//});
 
 const app = express();
 app.use(cors());
@@ -57,6 +57,26 @@ const pool = new Pool({
 pool.on('error', (err) => {
   console.error('Erro de conexão no banco:', err.message);
 });
+// ==================== FUNÇÃO DINÂMICA DO MERCADO PAGO ====================
+const { MercadoPagoConfig, Payment, Preference } = require('mercadopago');
+
+async function obterClienteMercadoPago() {
+  try {
+    const resultado = await pool.query('SELECT token_acesso FROM configuracoes_pagamento WHERE id = 1');
+    const tokenBanco = resultado.rows[0]?.token_acesso;
+
+    const tokenFinal = tokenBanco || process.env.MERCADOPAGO_ACCESS_TOKEN;
+
+    return new MercadoPagoConfig({
+      accessToken: tokenFinal
+    });
+  } catch (err) {
+    console.error('Erro ao buscar token do Mercado Pago no banco, usando fallback do .env:', err.message);
+    return new MercadoPagoConfig({
+      accessToken: process.env.MERCADOPAGO_ACCESS_TOKEN
+    });
+  }
+}
 
 // ==================== MIDDLEWARE DE AUTENTICAÇÃO ====================
 const autenticarToken = (req, res, next) => {
@@ -106,7 +126,6 @@ app.post('/api/login', async (req, res) => {
 
     const usuario = usuarioRes.rows[0];
     
-    // Suporta hash bcrypt e comparação em texto simples
     let senhaValida = false;
     if (usuario.senha && usuario.senha.startsWith('$2')) {
       senhaValida = await bcrypt.compare(pass, usuario.senha);
@@ -282,6 +301,53 @@ app.get('/api/clientes/:telefone', async (req, res) => {
   }
 });
 
+// ==================== CONFIGURAÇÕES DE PAGAMENTO ====================
+
+// Salvar ou atualizar credenciais do Mercado Pago
+app.post('/api/configuracoes/pagamento', async (req, res) => {
+  try {
+    const { token_acesso, chave_publica } = req.body;
+
+    const resultado = await pool.query(
+      `INSERT INTO configuracoes_pagamento (id, provedor, token_acesso, chave_publica, atualizado_em)
+       VALUES (1, 'mercadopago', $1, $2, NOW())
+       ON CONFLICT (id) 
+       DO UPDATE SET 
+         token_acesso = EXCLUDED.token_acesso,
+         chave_publica = EXCLUDED.chave_publica,
+         atualizado_em = NOW()
+       RETURNING *`,
+      [token_acesso, chave_publica]
+    );
+
+    return res.status(200).json({ 
+      mensagem: 'Configurações salvas com sucesso!',
+      configuracao: resultado.rows[0]
+    });
+  } catch (error) {
+    console.error('Erro ao salvar configurações de pagamento:', error);
+    return res.status(500).json({ erro: error.message });
+  }
+});
+
+// Buscar credenciais salvas
+app.get('/api/configuracoes/pagamento', async (req, res) => {
+  try {
+    const resultado = await pool.query(
+      'SELECT * FROM configuracoes_pagamento WHERE id = 1'
+    );
+
+    if (resultado.rows.length === 0) {
+      return res.status(200).json({ token_acesso: '', chave_publica: '' });
+    }
+
+    return res.status(200).json(resultado.rows[0]);
+  } catch (error) {
+    console.error('Erro ao buscar configurações de pagamento:', error);
+    return res.status(500).json({ erro: error.message });
+  }
+});
+
 // ==================== MERCADO PAGO / PIX REAL ====================
 
 app.post('/api/pagamento/pix', async (req, res) => {
@@ -296,7 +362,6 @@ app.post('/api/pagamento/pix', async (req, res) => {
     let firstName = partesNome[0] || 'Cliente';
     let lastName = partesNome.slice(1).join(' ') || 'Teste';
 
-    // No Sandbox do Mercado Pago, NUNCA use o e-mail da sua própria conta de dev (dono do token)
     let emailCliente = (cliente_email || email || clienteData.email || '').trim();
     if (!emailCliente || !emailCliente.includes('@') || emailCliente.includes('203309016')) {
       emailCliente = 'comprador_teste_pix@testuser.com';
@@ -308,9 +373,10 @@ app.post('/api/pagamento/pix', async (req, res) => {
       });
     }
 
-    const payment = new Payment(client);
-
-    // Chave de idempotência única exigida pelo SDK v2
+    // ALTERAÇÃO: Obtém o cliente dinamicamente do banco de dados
+    const clientDinamico = await obterClienteMercadoPago();
+    const payment = new Payment(clientDinamico);
+    
     const idempotencyKey = `pix-${pedido_id || Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 
     const response = await payment.create({
@@ -352,8 +418,6 @@ app.post('/api/pagamento/pix', async (req, res) => {
 
   } catch (err) {
     console.error('Erro ao gerar PIX no Mercado Pago:', err);
-    
-    // Se a API do Mercado Pago retornar detalhes de erro, exibe no terminal
     if (err.api_response && err.api_response.body) {
       console.error('Detalhes da resposta do Mercado Pago:', JSON.stringify(err.api_response.body, null, 2));
     }
@@ -364,14 +428,7 @@ app.post('/api/pagamento/pix', async (req, res) => {
   }
 });
 
-// Importe a Preference no topo do seu server.js caso ainda não tenha feito:
-// const { Payment, Preference } = require('mercadopago');
-
-
-/* ====================
-   MERCADO PAGO / CARTÃO DE CRÉDITO
-   CHECKOUT PRO
-==================== */
+// ==================== MERCADO PAGO / CARTÃO DE CRÉDITO (CHECKOUT PRO) ====================
 
 app.post('/api/pagamento/cartao-link', async (req, res) => {
   try {
@@ -387,10 +444,7 @@ app.post('/api/pagamento/cartao-link', async (req, res) => {
     } = req.body;
 
     const clienteData = cliente || {};
-
-    const valorCobranca = Number(
-      total ?? valor_total ?? valor ?? 0
-    );
+    const valorCobranca = Number(total ?? valor_total ?? valor ?? 0);
 
     if (!Number.isFinite(valorCobranca) || valorCobranca <= 0) {
       return res.status(400).json({
@@ -399,84 +453,65 @@ app.post('/api/pagamento/cartao-link', async (req, res) => {
       });
     }
 
-    const nomeCompleto = String(
-      cliente_nome || clienteData.nome || 'Cliente'
-    ).trim();
-
+    const nomeCompleto = String(cliente_nome || clienteData.nome || 'Cliente').trim();
     const partesNome = nomeCompleto.split(/\s+/);
-
     const firstName = partesNome[0] || 'Cliente';
     const lastName = partesNome.slice(1).join(' ') || 'Cliente';
 
-    const emailCliente = String(
-      cliente_email || email || clienteData.email || ''
-    ).trim();
+    const emailCliente = String(cliente_email || email || clienteData.email || '').trim();
 
-    if (
-      !emailCliente ||
-      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailCliente)
-    ) {
+    if (!emailCliente || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailCliente)) {
       return res.status(400).json({
         success: false,
         mensagem: 'Informe um e-mail válido para o pagamento.'
       });
     }
 
-    const preference = new Preference(client);
+    // ALTERAÇÃO: Obtém o cliente dinamicamente do banco de dados
+    const clientDinamico = await obterClienteMercadoPago();
+    const preference = new Preference(clientDinamico);
 
     const response = await preference.create({
-  body: {
-    items: [
-      {
-        id: pedido_id ? String(pedido_id) : 'lanches-da-ju',
-        title: `Pedido Lanches da Ju #${pedido_id || ''}`,
-        quantity: 1,
-        unit_price: Number(valorCobranca.toFixed(2)),
-        currency_id: 'BRL'
+      body: {
+        items: [
+          {
+            id: pedido_id ? String(pedido_id) : 'lanches-da-ju',
+            title: `Pedido Lanches da Ju #${pedido_id || ''}`,
+            quantity: 1,
+            unit_price: Number(valorCobranca.toFixed(2)),
+            currency_id: 'BRL'
+          }
+        ],
+        payer: {
+          email: emailCliente,
+          name: firstName,
+          surname: lastName
+        },
+        payment_methods: {
+          excluded_payment_types: [
+            { id: 'ticket' },
+            { id: 'bank_transfer' }
+          ],
+          installments: 12
+        },
+        back_urls: {
+          success: 'https://www.mercadopago.com.br',
+          failure: 'https://www.mercadopago.com.br',
+          pending: 'https://www.mercadopago.com.br'
+        },
+        auto_return: 'approved',
+        external_reference: pedido_id ? String(pedido_id) : undefined
       }
-    ],
+    });
 
-    payer: {
-      email: emailCliente,
-      name: firstName,
-      surname: lastName
-    },
-
-    payment_methods: {
-      excluded_payment_types: [
-        { id: 'ticket' },
-        { id: 'bank_transfer' }
-      ],
-      installments: 12
-    },
-
-    back_urls: {
-      success: 'https://www.mercadopago.com.br',
-      failure: 'https://www.mercadopago.com.br',
-      pending: 'https://www.mercadopago.com.br'
-    },
-
-    auto_return: 'approved',
-
-    external_reference: pedido_id
-      ? String(pedido_id)
-      : undefined
-  }
-});
-    // Salva o ID da preferência no pedido para rastreamento.
-    // Este ID não é o ID definitivo do pagamento.
     if (pedido_id) {
       await pool.query(
-        `UPDATE pedidos
-         SET pagamento_id = $1
-         WHERE id = $2`,
+        `UPDATE pedidos SET pagamento_id = $1 WHERE id = $2`,
         [`preference:${response.id}`, pedido_id]
       );
     }
 
-    console.log(
-      `Link de cartão gerado. Preference ID: ${response.id}`
-    );
+    console.log(`Link de cartão gerado. Preference ID: ${response.id}`);
 
     return res.json({
       success: true,
@@ -487,16 +522,9 @@ app.post('/api/pagamento/cartao-link', async (req, res) => {
     });
 
   } catch (err) {
-    console.error(
-      'Erro ao gerar link de cartão:',
-      err.message
-    );
-
+    console.error('Erro ao gerar link de cartão:', err.message);
     if (err.api_response?.body) {
-      console.error(
-        'Detalhes Mercado Pago:',
-        JSON.stringify(err.api_response.body, null, 2)
-      );
+      console.error('Detalhes Mercado Pago:', JSON.stringify(err.api_response.body, null, 2));
     }
 
     return res.status(500).json({
@@ -511,16 +539,10 @@ app.post('/api/pagamento/cartao-link', async (req, res) => {
 app.post('/api/webhook/mercadopago', async (req, res) => {
   try {
     console.log('Notificação Webhook Recebida:', req.body);
-
-    // O Mercado Pago pode enviar eventos em req.body.action ou req.body.type
-    const action = req.body.action || req.body.type;
     const data = req.body.data;
 
-    // Garante que 'data' existe e contém um 'id'
     if (data && data.id) {
       const paymentId = data.id;
-
-      // Atualiza o pedido se houver um pagamento associado no seu banco
       try {
         const resultado = await pool.query(
           `UPDATE pedidos 
@@ -531,26 +553,20 @@ app.post('/api/webhook/mercadopago', async (req, res) => {
 
         if (resultado.rowCount > 0) {
           console.log(`✅ Pagamento ${paymentId} aprovado e pedido #${resultado.rows[0].id} atualizado!`);
-        } else {
-          console.log(`ℹ️ Notificação recebida para o pagamento ${paymentId}, mas nenhum pedido correspondente foi encontrado no banco.`);
         }
       } catch (dbErr) {
         console.error('Erro ao atualizar banco no Webhook:', dbErr.message);
       }
     }
-
-    // Responda SEMPRE com HTTP 200 OK para o Mercado Pago confirmar a entrega
     return res.status(200).send('OK');
   } catch (err) {
     console.error('Erro geral no webhook:', err);
-    // Mesmo em erro, é recomendável responder 200 em testes para evitar reenvio em loop
     return res.status(200).send('OK com avisos');
   }
 });
 
 // ==================== TAXAS DE ENTREGA ====================
 
-// Listar todas as taxas
 app.get('/api/taxas-entrega', async (req, res) => {
   try {
     const resultado = await pool.query('SELECT * FROM taxas_entrega ORDER BY bairro ASC');
@@ -561,10 +577,8 @@ app.get('/api/taxas-entrega', async (req, res) => {
   }
 });
 
-// Cadastrar nova taxa
 app.post('/api/taxas-entrega', autenticarToken, async (req, res) => {
   const { bairro, valor } = req.body;
-
   if (!bairro || valor === undefined) {
     return res.status(400).json({ mensagem: 'Bairro e valor são obrigatórios.' });
   }
@@ -581,7 +595,6 @@ app.post('/api/taxas-entrega', autenticarToken, async (req, res) => {
   }
 });
 
-// Editar taxa existente
 app.put('/api/taxas-entrega/:id', autenticarToken, async (req, res) => {
   const { id } = req.params;
   const { bairro, valor, ativo } = req.body;
@@ -600,7 +613,6 @@ app.put('/api/taxas-entrega/:id', autenticarToken, async (req, res) => {
   }
 });
 
-// Excluir taxa
 app.delete('/api/taxas-entrega/:id', autenticarToken, async (req, res) => {
   const { id } = req.params;
   try {
@@ -611,8 +623,6 @@ app.delete('/api/taxas-entrega/:id', autenticarToken, async (req, res) => {
     res.status(500).json({ mensagem: 'Erro ao excluir taxa de entrega' });
   }
 });
-// ==================== ROTA PÚBLICA DE TAXAS (PARA O CLIENTE) ====================
-// Essa rota permite que o cliente liste os bairros e taxas sem precisar de token de login
 
 app.get('/api/taxas-entrega/publicas', async (req, res) => {
   try {
@@ -643,10 +653,7 @@ app.post('/api/pedidos', async (req, res) => {
     .join(', ');
 
   const tipo_entrega = req.body.tipo_entrega || 'delivery';
-  
-  // Suporta tanto 'formaPagamento' (frontend camelCase) quanto 'forma_pagamento' (snake_case)
   const forma_pagamento = req.body.formaPagamento || req.body.forma_pagamento || 'PIX';
-  
   const valor_total = req.body.valor_total || req.body.total || 0;
   const observacoes = req.body.observacoes || '';
   const cliente_id = req.body.cliente_id || clienteData.id || null;
@@ -725,12 +732,7 @@ app.patch('/api/pedidos/:id/status', autenticarToken, async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`✅ Servidor backend rodando na porta ${PORT}`);
-});
-
-// ==================== PEDIDOS KANBAN (Apenas Ativos) ====================
+// ==================== PEDIDOS KANBAN ====================
 
 app.get('/api/pedidos/kanban', async (req, res) => {
   try {
@@ -746,7 +748,7 @@ app.get('/api/pedidos/kanban', async (req, res) => {
   }
 });
 
-// ==================== RELATÓRIOS E MÉTRICAS (Todos os Pedidos) ====================
+// ==================== RELATÓRIOS E MÉTRICAS ====================
 
 app.get('/api/relatorios', autenticarToken, async (req, res) => {
   try {
@@ -754,7 +756,6 @@ app.get('/api/relatorios', autenticarToken, async (req, res) => {
     const pedidos = resultado.rows;
 
     const totalPedidos = pedidos.length;
-    
     const faturamentoTotal = pedidos.reduce((acc, p) => {
       const val = Number(p.valor_total || p.total || 0);
       return acc + val;
@@ -795,4 +796,9 @@ app.get('/api/relatorios', autenticarToken, async (req, res) => {
     console.error('Erro ao gerar relatório:', err);
     res.status(500).json({ mensagem: 'Erro ao gerar relatório' });
   }
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`✅ Servidor backend rodando na porta ${PORT}`);
 });
