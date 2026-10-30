@@ -15,7 +15,7 @@ export default function GestaoTaxas() {
 
   const buscarTaxas = useCallback(async () => {
     try {
-      const res = await fetch('http://localhost:3000/api/taxas-entrega');
+      const res = await fetch('/api/taxas-entrega');
       if (!res.ok) throw new Error('Erro ao buscar taxas');
       const dados = await res.json();
       setTaxas(dados);
@@ -52,8 +52,8 @@ export default function GestaoTaxas() {
     try {
       const token = sessionStorage.getItem('token') || localStorage.getItem('token');
       const url = taxaEditandoId
-        ? `http://localhost:3000/api/taxas-entrega/${taxaEditandoId}`
-        : 'http://localhost:3000/api/taxas-entrega';
+        ? `/api/taxas-entrega/${taxaEditandoId}`
+        : '/api/taxas-entrega';
 
       const method = taxaEditandoId ? 'PUT' : 'POST';
 
@@ -83,7 +83,7 @@ export default function GestaoTaxas() {
 
     try {
       const token = sessionStorage.getItem('token') || localStorage.getItem('token');
-      const res = await fetch(`http://localhost:3000/api/taxas-entrega/${id}`, {
+      const res = await fetch(`/api/taxas-entrega/${id}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
