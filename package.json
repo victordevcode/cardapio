@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node backend/src/server.js",
-    "build": "npm install --prefix backend && npm install --prefix frontend && npm run build --prefix frontend",
+    "build": "npm install && npm install --prefix frontend && npm run build --prefix frontend",
     "dev": "concurrently \"npm start --prefix backend\" \"npm start --prefix frontend\"",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -27,6 +27,7 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.112.4",
     "cors": "^2.8.6",
+    "dotenv": "^16.4.5",
     "mercadopago": "^3.6.1",
     "multer": "^2.2.0"
   }
