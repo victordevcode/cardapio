@@ -73,10 +73,14 @@ export default function ListagemCardapio() {
                     >
                       <div className="flex items-center gap-3">
                         <img
-                          src={item.imagem_url || item.imagem || 'https://via.placeholder.com/60'}
-                          alt={item.nome}
-                          className="w-12 h-12 object-cover rounded-lg border border-gray-200 flex-shrink-0"
-                        />
+  src={item.imagem_url || item.imagem || 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=150&auto=format&fit=crop&q=80'}
+  alt={item.nome}
+  onError={(e) => {
+    e.target.onerror = null;
+    e.target.src = 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=150&auto=format&fit=crop&q=80';
+  }}
+  className="w-12 h-12 object-cover rounded-lg border border-gray-200 flex-shrink-0"
+/>
                         <div>
                           <p className="font-bold text-slate-900 text-sm">{item.nome}</p>
                           <p className="text-xs text-gray-500 line-clamp-1">
