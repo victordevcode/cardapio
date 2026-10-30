@@ -13,10 +13,6 @@ export default function App() {
   const [telaAtual, setTelaAtual] = useState('listagem');
   const [menuVisivel, setMenuVisivel] = useState(true);
 
-  // 🚀 DETECÇÃO AUTOMÁTICA DO RENDER:
-  // Se o site estiver hospedado no Render, exibe APENAS o Cardapio do Cliente publicamente.
-  const ehAmbientePublicoRender = window.location.hostname.includes('onrender.com');
-
   useEffect(() => {
     const token = sessionStorage.getItem('token');
     if (token) {
@@ -34,25 +30,7 @@ export default function App() {
     setAutenticado(false);
   };
 
-  // Se estiver no link do Render, renderiza direto o Cardápio do Cliente para o público!
-  if (ehAmbientePublicoRender) {
-    return (
-      <div className="min-h-screen bg-gray-50 p-4 font-sans flex flex-col justify-between">
-        <div className="max-w-6xl mx-auto space-y-4 w-full">
-          <header className="bg-gradient-to-r from-slate-900 to-slate-800 rounded-2xl text-white p-4 shadow-md text-center">
-            <h1 className="text-2xl font-extrabold tracking-tight">🍔 Lanches da Jú</h1>
-            <p className="text-slate-400 text-xs font-medium">Faça o seu pedido online!</p>
-          </header>
-          <main className="pt-2">
-            <CardapioCliente />
-          </main>
-        </div>
-        <RodapéVersao />
-      </div>
-    );
-  }
-
-  // Se estiver no seu computador (local), o comportamento normal de admin continua 100% ativo:
+  // Se não estiver autenticado, exibe a tela de Login em qualquer ambiente (local ou Render)
   if (!autenticado) {
     return <Login aoLogar={handleLoginSucesso} />;
   }
