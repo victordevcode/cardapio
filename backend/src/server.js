@@ -679,12 +679,11 @@ app.get('/api/relatorios', autenticarToken, async (req, res) => {
 });
 
 // ==================== SERVIR O FRONTEND COM CAMINHO SEGURO ====================
-// Tenta localizar a pasta build em diferentes níveis de diretório automaticamente
 const possiblePaths = [
-  path.join(__dirname, '../frontend/build'),
   path.join(__dirname, '../../frontend/build'),
-  path.join(__dirname, '../build'),
-  path.join(__dirname, 'public')
+  path.join(__dirname, '../frontend/build'),
+  path.join(__dirname, '../../build'),
+  path.join(__dirname, '../build')
 ];
 
 let frontendPath = possiblePaths.find(p => fs.existsSync(p));
@@ -696,4 +695,12 @@ if (frontendPath) {
   app.get('*', (req, res) => {
     res.sendFile(path.resolve(frontendPath, 'index.html'));
   });
+} else {
+  console.error('❌ ERRO CRÍTICO: Pasta de build do frontend não encontrada!');
 }
+
+// ==================== INICIALIZAÇÃO DO SERVIDOR ====================
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`✅ Servidor rodando com sucesso na porta ${PORT}`);
+});
