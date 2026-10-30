@@ -32,7 +32,7 @@ export default function CadastroCardapio() {
   // 1. Buscar categorias
   const buscarCategorias = useCallback(async () => {
     try {
-      const res = await fetch('http://localhost:3000/api/categorias');
+      const res = await fetch('/api/categorias');
       if (!res.ok) throw new Error('Erro ao buscar categorias');
       const dados = await res.json();
       setCategorias(dados);
@@ -45,7 +45,7 @@ export default function CadastroCardapio() {
   // 2. Buscar produtos
   const buscarProdutos = useCallback(async () => {
     try {
-      const res = await fetch('http://localhost:3000/api/produtos');
+      const res = await fetch('/api/produtos');
       if (!res.ok) throw new Error('Erro ao buscar produtos');
       const dados = await res.json();
       setProdutos(dados);
@@ -60,7 +60,7 @@ export default function CadastroCardapio() {
   const buscarSaboresSuco = useCallback(async () => {
     try {
       const token = sessionStorage.getItem('token') || localStorage.getItem('token');
-      const res = await fetch('http://localhost:3000/api/sabores-suco-admin', {
+      const res = await fetch('/api/sabores-suco-admin', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (!res.ok) throw new Error('Erro ao buscar sabores de suco');
@@ -123,7 +123,7 @@ export default function CadastroCardapio() {
 
     try {
       const token = sessionStorage.getItem('token') || localStorage.getItem('token');
-      const res = await fetch(`http://localhost:3000/api/produtos/${prod.id}/disponibilidade`, {
+      const res = await fetch(`/api/produtos/${prod.id}/disponibilidade`, {
         method: 'PATCH',
         headers: { 
           'Content-Type': 'application/json',
@@ -142,7 +142,6 @@ export default function CadastroCardapio() {
     }
   };
 
-  // Função para alternar o status de um sabor específico de suco
   const toggleStatusSabor = async (saborObj) => {
     const statusAtual = saborObj.ativo;
     const novoStatus = !statusAtual;
@@ -152,7 +151,7 @@ export default function CadastroCardapio() {
     );
 
     try {
-      const res = await fetch(`http://localhost:3000/api/sabores-suco/${saborObj.id}/status`, {
+      const res = await fetch(`/api/sabores-suco/${saborObj.id}/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ativo: novoStatus }),
@@ -173,7 +172,7 @@ export default function CadastroCardapio() {
 
     try {
       const token = sessionStorage.getItem('token') || localStorage.getItem('token');
-      const res = await fetch(`http://localhost:3000/api/produtos/${id}`, {
+      const res = await fetch(`/api/produtos/${id}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -205,8 +204,8 @@ export default function CadastroCardapio() {
       }
 
       const url = produtoEditandoId
-        ? `http://localhost:3000/api/produtos/${produtoEditandoId}`
-        : 'http://localhost:3000/api/produtos';
+        ? `/api/produtos/${produtoEditandoId}`
+        : '/api/produtos';
 
       const method = produtoEditandoId ? 'PUT' : 'POST';
       const token = sessionStorage.getItem('token') || localStorage.getItem('token');
@@ -230,7 +229,6 @@ export default function CadastroCardapio() {
     }
   };
 
-  // Filtra a lista de produtos de acordo com o texto da busca
   const produtosFiltrados = produtos.filter((prod) =>
     (prod.nome || '').toLowerCase().includes(busca.toLowerCase()) ||
     (prod.descricao || '').toLowerCase().includes(busca.toLowerCase())
