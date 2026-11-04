@@ -6,35 +6,21 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const path = require('path');
-const fs = require('fs');
+const fs = require('fs'); // <--- Adicionado aqui para o bloco do frontend funcionar
+const { createClient } = require('@supabase/supabase-js');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Garante que a pasta "uploads" existe localmente
-const uploadDir = path.join(__dirname, 'uploads');
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
+// ==================== CONFIGURAÇÃO DO SUPABASE ====================
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
+const supabase = createClient(supabaseUrl, supabaseKey);
 
-// Servir a pasta "uploads" como estática para exibir as fotos no navegador
-app.use('/uploads', express.static(uploadDir));
-
-// Configuração do Multer para salvar os arquivos de imagem localmente
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    const nomeArquivo = `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
-    cb(null, nomeArquivo);
-  },
-});
-
-const upload = multer({ storage });
+// Configuração do Multer para manter o arquivo na memória RAM temporariamente
+const upload = multer({ storage: multer.memoryStorage() });
 
 const JWT_SECRET = process.env.JWT_SECRET || 'sua_chave_secreta_super_segura_123';
 
@@ -165,27 +151,32 @@ app.post('/api/categorias', autenticarToken, async (req, res) => {
 });
 
 // ==================== PRODUTOS ====================
-app.get('/api/produtos', async (req, res) => {
-  try {
-    const resultado = await pool.query(`
-      SELECT p.*, c.nome as categoria_nome
-      FROM produtos p
-      LEFT JOIN categorias c ON p.categoria_id = c.id
-      ORDER BY p.id DESC
-    `);
-    res.json(resultado.rows);
-  } catch (err) {
-    console.error('Erro ao buscar produtos:', err);
-    res.status(500).json({ mensagem: 'Erro ao buscar produtos' });
-  }
-});
-
 app.post('/api/produtos', autenticarToken, upload.single('imagem_arquivo'), async (req, res) => {
   const { nome, preco, descricao, categoria_id, imagem_url } = req.body;
   try {
     let finalImagemUrl = imagem_url || '';
+
     if (req.file) {
-      finalImagemUrl = `/uploads/${req.file.filename}`;
+      const ext = path.extname(req.file.originalname);
+      const fileName = `produtos/${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
+
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('cardapio-imagens') // Nome do seu bucket no Supabase
+        .upload(fileName, req.file.buffer, {
+          contentType: req.file.mimetype,
+          upsert: true
+        });
+
+      if (uploadError) {
+        console.error('Erro no upload para o Supabase Storage:', uploadError);
+        return res.status(500).json({ mensagem: 'Erro ao fazer upload da imagem para o Supabase.' });
+      }
+
+      const { data: publicUrlData } = supabase.storage
+        .from('cardapio-imagens')
+        .getPublicUrl(fileName);
+
+      finalImagemUrl = publicUrlData.publicUrl;
     }
 
     const resultado = await pool.query(
@@ -209,7 +200,26 @@ app.put('/api/produtos/:id', autenticarToken, upload.single('imagem_arquivo'), a
     let isDisponivel = prodAtual.rows[0]?.disponivel ?? true;
 
     if (req.file) {
-      finalImagemUrl = `/uploads/${req.file.filename}`;
+      const ext = path.extname(req.file.originalname);
+      const fileName = `produtos/${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
+
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('cardapio-imagens')
+        .upload(fileName, req.file.buffer, {
+          contentType: req.file.mimetype,
+          upsert: true
+        });
+
+      if (uploadError) {
+        console.error('Erro no upload para o Supabase Storage:', uploadError);
+        return res.status(500).json({ mensagem: 'Erro ao fazer upload da nova imagem.' });
+      }
+
+      const { data: publicUrlData } = supabase.storage
+        .from('cardapio-imagens')
+        .getPublicUrl(fileName);
+
+      finalImagemUrl = publicUrlData.publicUrl;
     } else if (imagem_url) {
       finalImagemUrl = imagem_url;
     }
