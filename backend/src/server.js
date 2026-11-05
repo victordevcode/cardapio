@@ -161,7 +161,7 @@ app.post('/api/produtos', autenticarToken, upload.single('imagem_arquivo'), asyn
       const fileName = `produtos/${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
 
       const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('cardapio-imagens') // Nome do seu bucket no Supabase
+        .from('Produtos') // Alterado para o nome correto do seu bucket
         .upload(fileName, req.file.buffer, {
           contentType: req.file.mimetype,
           upsert: true
@@ -173,7 +173,7 @@ app.post('/api/produtos', autenticarToken, upload.single('imagem_arquivo'), asyn
       }
 
       const { data: publicUrlData } = supabase.storage
-        .from('cardapio-imagens')
+        .from('Produtos') // Alterado para o nome correto do seu bucket
         .getPublicUrl(fileName);
 
       finalImagemUrl = publicUrlData.publicUrl;
@@ -204,7 +204,7 @@ app.put('/api/produtos/:id', autenticarToken, upload.single('imagem_arquivo'), a
       const fileName = `produtos/${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
 
       const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('cardapio-imagens')
+        .from('Produtos') // Alterado para o nome correto do seu bucket
         .upload(fileName, req.file.buffer, {
           contentType: req.file.mimetype,
           upsert: true
@@ -216,7 +216,7 @@ app.put('/api/produtos/:id', autenticarToken, upload.single('imagem_arquivo'), a
       }
 
       const { data: publicUrlData } = supabase.storage
-        .from('cardapio-imagens')
+        .from('Produtos') // Alterado para o nome correto do seu bucket
         .getPublicUrl(fileName);
 
       finalImagemUrl = publicUrlData.publicUrl;
