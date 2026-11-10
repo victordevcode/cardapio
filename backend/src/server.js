@@ -151,11 +151,21 @@ app.post('/api/categorias', autenticarToken, async (req, res) => {
 });
 
 // ==================== PRODUTOS ====================
+app.get('/api/produtos', async (req, res) => {
+  try {
+    const resultado = await pool.query('SELECT * FROM produtos ORDER BY id ASC');
+    res.json(resultado.rows);
+  } catch (err) {
+    console.error('Erro ao buscar produtos:', err);
+    res.status(500).json({ mensagem: 'Erro ao buscar produtos' });
+  }
+});
+
 app.post('/api/produtos', autenticarToken, upload.single('imagem_arquivo'), async (req, res) => {
   const { nome, preco, descricao, categoria_id, imagem_url } = req.body;
   try {
     let finalImagemUrl = imagem_url || '';
-
+     
     if (req.file) {
       const ext = path.extname(req.file.originalname);
       const fileName = `produtos/${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;

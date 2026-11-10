@@ -96,6 +96,25 @@ export default function CadastroCardapio() {
     setMostrarFormulario(false);
   };
 
+  const abrirFormularioNovo = () => {
+    if (mostrarFormulario && !produtoEditandoId) {
+      // Se já está aberto e em modo cadastro, fecha
+      limparFormulario();
+    } else {
+      // Abre limpo para novo cadastro (garante que não está em modo edição)
+      setNome('');
+      setDescricao('');
+      setPreco('');
+      setImagemUrl('');
+      setArquivoImagem(null);
+      setPrevia('');
+      setProdutoEditandoId(null);
+      if (categorias.length > 0) setCategoriaId(categorias[0].id);
+      setMostrarFormulario(true);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
   const iniciarEdicao = (prod) => {
     setProdutoEditandoId(prod.id);
     setNome(prod.nome || '');
@@ -241,10 +260,7 @@ export default function CadastroCardapio() {
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
         <button
           type="button"
-          onClick={() => {
-            if (mostrarFormulario) limparFormulario();
-            else setMostrarFormulario(true);
-          }}
+          onClick={abrirFormularioNovo}
           className="bg-rose-600 hover:bg-rose-700 text-white font-bold px-4 py-2.5 rounded-xl shadow-sm transition-all flex items-center justify-center gap-2 text-sm cursor-pointer active:scale-95"
         >
           {mostrarFormulario ? '✕ Fechar Formulário' : '➕ Novo Produto'}
