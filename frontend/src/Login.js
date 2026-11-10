@@ -1,8 +1,5 @@
 import React, { useState } from 'react';
 
-// Se a imagem estiver em assets, descomente a linha abaixo:
-// import logoImg from '../assets/logo.png'; 
-
 export default function Login({ aoLogar }) {
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
@@ -49,15 +46,15 @@ export default function Login({ aoLogar }) {
       <form onSubmit={handleSubmit} style={{
         background: '#1e293b',
         padding: '32px',
-        paddingTop: '60px', // Espaço extra no topo para acomodar a logo flutuante
+        paddingTop: '60px',
         borderRadius: '16px',
         width: '100%',
         maxWidth: '380px',
         boxShadow: '0 10px 25px rgba(0,0,0,0.3)',
         color: '#fff',
         boxSizing: 'border-box',
-        position: 'relative', // Permite posicionar a logo perfeitamente
-        marginTop: '60px'    // Evita colisão com o topo da página
+        position: 'relative',
+        marginTop: '60px'
       }}>
         
         {/* LOGO ARREDONDADA E FLUTUANTE NO TOPO */}
@@ -70,19 +67,15 @@ export default function Login({ aoLogar }) {
           height: '210px',
           borderRadius: '50%',
           overflow: 'hidden',
-          border: '4px solid #1e293b', // Borda da mesma cor do card
+          border: '4px solid #1e293b',
           boxShadow: '0 8px 16px rgba(0,0,0,0.4)',
           backgroundColor: '#0f172a'
         }}>
           <img 
-            src="/logo_Ju.png" // Mude para logoImg se estiver importando o arquivo
-            alt="Lanches da Jú" 
-            style={{ 
-              width: '100%', 
-              height: '100%', 
-              objectFit: 'cover' 
-            }} 
-          />
+           src="https://kibexqwtcypwaldgsnba.supabase.co/storage/v1/object/public/Produtos/logo_ju.png" 
+           alt="Lanches da Jú" 
+           className="w-full h-full rounded-full object-cover" 
+         />
         </div>
 
         <h2 style={{ textAlign: 'center', marginTop: 0, color: '#e11d48' }}>🔒 Painel Admin</h2>

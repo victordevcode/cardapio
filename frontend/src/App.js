@@ -11,6 +11,7 @@ import ContaBancaria from './ContaBancaria';
 export default function App() {
   const [autenticado, setAutenticado] = useState(false);
   const [telaAtual, setTelaAtual] = useState('listagem');
+ // eslint-disable-next-line no-unused-vars
   const [menuVisivel, setMenuVisivel] = useState(true);
 
   useEffect(() => {
@@ -39,17 +40,21 @@ export default function App() {
     <div className="min-h-screen bg-gray-50 p-4 font-sans flex flex-col justify-between">
       <div className="max-w-6xl mx-auto space-y-4 w-full">
 
-        {/* ================= 1. CABEÇALHO FIXO COM A LOGO ================= */}
+         {/* ================= 1. CABEÇALHO FIXO COM A LOGO ================= */}
         <header className="bg-gradient-to-r from-slate-900 to-slate-800 rounded-2xl text-white p-4 shadow-md flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-4">
-            <img
-              src="logo_ju.PNG"
-              alt="Logo do Lanche"
+            {/* LOGO CLICÁVEL PARA RECOLHER/EXIBIR O MENU */}
+            <div 
               onClick={() => setMenuVisivel(!menuVisivel)}
-              onError={(e) => { e.target.src = 'https://via.placeholder.com/100'; }}
-              className="w-16 h-16 object-cover rounded-full border-2 border-rose-500 shadow-md flex-shrink-0 cursor-pointer hover:opacity-85 active:scale-95 transition-all"
-              title="Clique para abrir/fechar o menu"
-            />
+              className="w-14 h-14 rounded-full overflow-hidden border-2 border-slate-700 shadow-md cursor-pointer hover:scale-105 transition-transform"
+              title="Clique para alternar o menu"
+            >
+              <img 
+                src="https://kibexqwtcypwaldgsnba.supabase.co/storage/v1/object/public/Produtos/logo_ju.png" 
+                alt="Lanches da Jú" 
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+              />
+          </div>
             <div className="text-center sm:text-left">
               <h1 className="text-2xl font-extrabold tracking-tight flex items-center justify-center sm:justify-start gap-2">
                 🍔 Lanches da Jú
@@ -69,7 +74,7 @@ export default function App() {
         </header>
 
        {/* ================= 2. BOTÕES DE NAVEGAÇÃO ================= */}
-        {menuVisivel && (
+         {menuVisivel && (
           <nav className="bg-white p-2.5 rounded-xl shadow-sm border border-gray-200/80 flex flex-wrap items-center justify-between gap-2 animate-fade-in">
             <div className="flex flex-wrap gap-2 items-center">
               <button
@@ -79,6 +84,7 @@ export default function App() {
                     ? 'bg-rose-600 text-white shadow-sm'
                     : 'bg-gray-50 text-gray-700 hover:bg-gray-100 border border-gray-200/60'
                 }`}
+
               >
                 📋 Produtos
               </button>
