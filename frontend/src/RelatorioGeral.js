@@ -1,29 +1,44 @@
 import React, { useState, useEffect, useCallback } from 'react';
 
+// Em produção (Render), usa caminho relativo ('') pois o backend serve o frontend.
+// Em desenvolvimento local (porta 3001), aponta para o backend na porta 3000.
+const API_URL =
+  process.env.REACT_APP_API_URL ||
+  (window.location.hostname === 'localhost' ? 'http://localhost:3000' : '');
+  
 export default function RelatorioGeral() {
   const [periodo, setPeriodo] = useState('mes'); // 'hoje', '7dias', 'mes', 'custom'
   const [dataInicio, setDataInicio] = useState('');
   const [dataFim, setDataFim] = useState('');
-  
+
   const [dadosRelatorio, setDadosRelatorio] = useState(null);
   const [carregando, setCarregando] = useState(true);
+  const [erro, setErro] = useState(null);
+
+  // Formata data no fuso horário local (YYYY-MM-DD) evitando bug de UTC após as 21h
+  const formatarDataLocal = (data) => {
+    const ano = data.getFullYear();
+    const mes = String(data.getMonth() + 1).padStart(2, '0');
+    const dia = String(data.getDate()).padStart(2, '0');
+    return `${ano}-${mes}-${dia}`;
+  };
 
   // Calcular datas do período selecionado
   const obterDatasFiltro = useCallback(() => {
     const hoje = new Date();
-    const isoHoje = hoje.toISOString().split('T')[0];
+    const strHoje = formatarDataLocal(hoje);
 
     if (periodo === 'hoje') {
-      return { inicio: isoHoje, fim: isoHoje };
+      return { inicio: strHoje, fim: strHoje };
     }
     if (periodo === '7dias') {
       const d7 = new Date();
       d7.setDate(hoje.getDate() - 7);
-      return { inicio: d7.toISOString().split('T')[0], fim: isoHoje };
+      return { inicio: formatarDataLocal(d7), fim: strHoje };
     }
     if (periodo === 'mes') {
       const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
-      return { inicio: inicioMes.toISOString().split('T')[0], fim: isoHoje };
+      return { inicio: formatarDataLocal(inicioMes), fim: strHoje };
     }
     return { inicio: dataInicio, fim: dataFim };
   }, [periodo, dataInicio, dataFim]);
@@ -31,30 +46,42 @@ export default function RelatorioGeral() {
   const carregarRelatorio = useCallback(async () => {
     try {
       setCarregando(true);
+      setErro(null);
       const { inicio, fim } = obterDatasFiltro();
       const token = sessionStorage.getItem('token') || localStorage.getItem('token');
 
-      let url = 'http://localhost:3000/api/relatorios?';
-      if (inicio) url += `data_inicio=${inicio}&`;
-      if (fim) url += `data_fim=${fim}`;
+      const params = new URLSearchParams();
+      if (inicio) params.append('data_inicio', inicio);
+      if (fim) params.append('data_fim', fim);
+
+      const url = `${API_URL.replace(/\/$/, '')}/api/relatorios?${params.toString()}`;
 
       const res = await fetch(url, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
       });
 
-      if (!res.ok) throw new Error('Erro ao buscar relatórios');
+      if (!res.ok) {
+        throw new Error(`Erro ${res.status}: Não foi possível buscar os relatórios.`);
+      }
+
       const dados = await res.json();
       setDadosRelatorio(dados);
     } catch (err) {
-      console.error(err);
+      console.error('Erro ao carregar relatório:', err);
+      setErro(err.message || 'Falha de conexão com o servidor.');
     } finally {
       setCarregando(false);
     }
   }, [obterDatasFiltro]);
 
   useEffect(() => {
-    carregarRelatorio();
-  }, [carregarRelatorio]);
+    if (periodo !== 'custom') {
+      carregarRelatorio();
+    }
+  }, [periodo, carregarRelatorio]);
 
   const resumo = dadosRelatorio?.resumo || {};
   const porBairro = dadosRelatorio?.porBairro || {};
@@ -95,7 +122,7 @@ export default function RelatorioGeral() {
 
       {/* FILTRO PERSONALIZADO */}
       {periodo === 'custom' && (
-        <div className="bg-white p-4 rounded-2xl border border-gray-200/80 shadow-sm flex items-center gap-4">
+        <div className="bg-white p-4 rounded-2xl border border-gray-200/80 shadow-sm flex flex-wrap items-center gap-4">
           <div>
             <label className="block text-xs font-bold text-gray-600 mb-1">Data Início</label>
             <input
@@ -117,10 +144,17 @@ export default function RelatorioGeral() {
           <button
             type="button"
             onClick={carregarRelatorio}
-            className="mt-5 bg-rose-600 text-white font-bold text-xs px-4 py-2 rounded-xl cursor-pointer"
+            className="mt-5 bg-rose-600 text-white font-bold text-xs px-4 py-2 rounded-xl cursor-pointer hover:bg-rose-700"
           >
             Filtrar
           </button>
+        </div>
+      )}
+
+      {/* MENSAGEM DE ERRO */}
+      {erro && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-2xl text-xs font-medium">
+          ⚠️ {erro}
         </div>
       )}
 
@@ -155,7 +189,7 @@ export default function RelatorioGeral() {
               <p className="text-[11px] text-gray-400 mt-1">repassado/arrecadado</p>
             </div>
 
-            <div className="bg-white p-5 rounded-2xl border border-gray-200/80 shadow-sm bg-rose-50/20 border-rose-100">
+            <div className="p-5 rounded-2xl border shadow-sm bg-rose-50/20 border-rose-100">
               <span className="text-xs font-bold text-rose-700 uppercase">Faturamento Geral</span>
               <h3 className="text-2xl font-extrabold text-rose-600 mt-1">
                 R$ {Number(resumo.faturamentoTotal || 0).toFixed(2)}
