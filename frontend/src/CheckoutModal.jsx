@@ -17,6 +17,10 @@ export function CheckoutModal({ carrinho, total, onClose, onPedidoConcluido }) {
   const [formaPagamento, setFormaPagamento] = useState('pix');
   const [trocoPara, setTrocoPara] = useState('');
 
+  // Estados para Contas de Pagamento do Banco (Tokens dinâmicos)
+  const [contasPagamento, setContasPagamento] = useState([]);
+  const [contaSelecionadaId, setContaSelecionadaId] = useState('');
+
   const [loading, setLoading] = useState(false);
   const [carregandoBairros, setCarregandoBairros] = useState(true);
 
@@ -27,29 +31,39 @@ export function CheckoutModal({ carrinho, total, onClose, onPedidoConcluido }) {
   // Total Final (Itens + Entrega)
   const totalFinal = Number(total || 0) + Number(taxaEntrega || 0);
 
-  // 1. Carregar Bairros do Backend
+  // 1. Carregar Bairros e Contas de Pagamento do Backend
   useEffect(() => {
-    async function carregarTaxas() {
+    async function carregarDadosIniciais() {
       try {
         setCarregandoBairros(true);
-        // Tenta rota pública primeiro, e se falhar tenta a rota padrão
-        let res = await fetch('/api/taxas-entrega/publicas');
-        if (!res.ok) {
-          res = await fetch('/api/taxas-entrega');
-        }
         
-        if (res.ok) {
-          const dados = await res.json();
-          setBairros(dados);
+        // Tenta rota pública de taxas, senão tenta a padrão
+        let resTaxas = await fetch('/api/taxas-entrega/publicas');
+        if (!resTaxas.ok) {
+          resTaxas = await fetch('/api/taxas-entrega');
+        }
+        if (resTaxas.ok) {
+          const dadosBairros = await resTaxas.json();
+          setBairros(dadosBairros);
+        }
+
+        // Carregar contas de pagamento cadastradas no banco (Tokens)
+        const resContas = await fetch('/api/configuracoes/pagamento');
+        if (resContas.ok) {
+          const listaContas = await resContas.json();
+          setContasPagamento(listaContas);
+          if (listaContas.length > 0) {
+            setContaSelecionadaId(listaContas[0].id); // Seleciona a primeira conta por padrão
+          }
         }
       } catch (e) {
-        console.error('Erro ao carregar taxas de entrega:', e);
+        console.error('Erro ao carregar dados iniciais:', e);
       } finally {
         setCarregandoBairros(false);
       }
     }
 
-    carregarTaxas();
+    carregarDadosIniciais();
 
     // Restaurar dados salvos no localStorage
     const clienteSalvo = localStorage.getItem('lanches_ju_cliente');
@@ -140,6 +154,7 @@ export function CheckoutModal({ carrinho, total, onClose, onPedidoConcluido }) {
             total: totalFinal,
             email: email,
             nome: nome,
+            configId: contaSelecionadaId // Envia o ID da conta/token escolhida no banco
           }),
         });
 
@@ -179,6 +194,7 @@ export function CheckoutModal({ carrinho, total, onClose, onPedidoConcluido }) {
             email: email,
             cliente_nome: nome,
             cliente: clienteData,
+            configId: contaSelecionadaId // Envia o ID da conta/token escolhida no banco
           }),
         });
 
@@ -288,7 +304,7 @@ export function CheckoutModal({ carrinho, total, onClose, onPedidoConcluido }) {
           <h2 className="text-xl font-bold text-gray-800">
             {dadosPix ? 'Pagamento via PIX 📱' : 'Finalizar Pedido 🛵'}
           </h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl font-bold cursor-pointer">&times;</button>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl font-bold cursor-pointer">×</button>
         </div>
 
         {!dadosPix ? (
@@ -353,7 +369,7 @@ export function CheckoutModal({ carrinho, total, onClose, onPedidoConcluido }) {
                     required
                     value={bairroSelecionadoId}
                     onChange={handleBairroChange}
-                    className="w-full p-3 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-rose-500 outline-none bg-white font-medium"
+                    className="w-full p-3 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-rose-500 outline-none bg-white font-medium cursor-pointer"
                   >
                     <option value="">Selecione seu bairro...</option>
                     {bairros.map((b) => (
@@ -439,6 +455,26 @@ export function CheckoutModal({ carrinho, total, onClose, onPedidoConcluido }) {
                 </button>
               </div>
             </div>
+
+            {/* SELETOR DE CONTA / TOKEN CADASTRADO NO BANCO (EXIBIDO APENAS PARA PAGAMENTOS ONLINE) */}
+            {(formaPagamento === 'pix' || formaPagamento === 'credito') && contasPagamento.length > 0 && (
+              <div className="bg-orange-50 border border-orange-200 p-3 rounded-xl">
+                <label className="block text-xs font-bold text-orange-800 uppercase mb-1">
+                  Conta de Pagamento (Token Ativo)
+                </label>
+                <select
+                  value={contaSelecionadaId}
+                  onChange={(e) => setContaSelecionadaId(e.target.value)}
+                  className="w-full p-2.5 bg-white border border-orange-300 rounded-lg text-sm focus:ring-2 focus:ring-orange-500 outline-none font-medium cursor-pointer"
+                >
+                  {contasPagamento.map((conta) => (
+                    <option key={conta.id} value={conta.id}>
+                      {conta.descricao || `Conta #${conta.id}`} ({conta.provedor})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             {formaPagamento === 'dinheiro' && (
               <div className="bg-amber-50 border border-amber-200 p-3 rounded-xl">

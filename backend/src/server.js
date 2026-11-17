@@ -6,8 +6,9 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const path = require('path');
-const fs = require('fs'); // <--- Adicionado aqui para o bloco do frontend funcionar
+const fs = require('fs');
 const { createClient } = require('@supabase/supabase-js');
+const { MercadoPagoConfig, Payment, Preference } = require('mercadopago');
 
 const app = express();
 app.use(cors());
@@ -39,11 +40,15 @@ pool.on('error', (err) => {
 });
 
 // ==================== FUNÇÃO DINÂMICA DO MERCADO PAGO ====================
-const { MercadoPagoConfig, Payment, Preference } = require('mercadopago');
-
-async function obterClienteMercadoPago() {
+async function obterClienteMercadoPago(contaId) {
   try {
-    const resultado = await pool.query('SELECT token_acesso FROM configuracoes_pagamento WHERE id = 1');
+    let resultado;
+    if (contaId) {
+      resultado = await pool.query('SELECT token_acesso FROM configuracoes_pagamento WHERE id = $1', [contaId]);
+    } else {
+      resultado = await pool.query('SELECT token_acesso FROM configuracoes_pagamento ORDER BY atualizado_em DESC LIMIT 1');
+    }
+    
     const tokenBanco = resultado.rows[0]?.token_acesso;
     const tokenFinal = tokenBanco || process.env.MERCADOPAGO_ACCESS_TOKEN;
 
@@ -51,7 +56,7 @@ async function obterClienteMercadoPago() {
       accessToken: tokenFinal
     });
   } catch (err) {
-    console.error('Erro ao buscar token do Mercado Pago no banco, usando fallback do .env:', err.message);
+    console.error('Erro ao buscar token do Mercado Pago no banco:', err.message);
     return new MercadoPagoConfig({
       accessToken: process.env.MERCADOPAGO_ACCESS_TOKEN
     });
@@ -128,6 +133,216 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
+// ==================== CONFIGURAÇÕES DE PAGAMENTO ====================
+app.get('/api/configuracoes/pagamento', async (req, res) => {
+  try {
+    const resultado = await pool.query(
+      'SELECT id, provedor, descricao, chave_publica, atualizado_em FROM configuracoes_pagamento ORDER BY id ASC'
+    );
+    return res.status(200).json(resultado.rows);
+  } catch (error) {
+    console.error('Erro ao listar configurações de pagamento:', error);
+    return res.status(500).json({ erro: error.message });
+  }
+});
+
+app.get('/api/configuracoes/pagamento/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const resultado = await pool.query('SELECT * FROM configuracoes_pagamento WHERE id = $1', [id]);
+    
+    if (resultado.rows.length === 0) {
+      return res.status(404).json({ mensagem: 'Configuração não encontrada.' });
+    }
+    
+    return res.status(200).json(resultado.rows[0]);
+  } catch (error) {
+    console.error('Erro ao buscar configuração:', error);
+    return res.status(500).json({ erro: error.message });
+  }
+});
+
+app.post('/api/configuracoes/pagamento', async (req, res) => {
+  try {
+    const { id, token_acesso, chave_publica, descricao } = req.body;
+
+    let resultado;
+    if (id) {
+      resultado = await pool.query(
+        `UPDATE configuracoes_pagamento 
+         SET token_acesso = COALESCE(NULLIF($1, ''), token_acesso), 
+             chave_publica = $2, 
+             descricao = $3, 
+             atualizado_em = NOW() 
+         WHERE id = $4 RETURNING *`,
+        [token_acesso, chave_publica, descricao, id]
+      );
+    } else {
+      resultado = await pool.query(
+        `INSERT INTO configuracoes_pagamento (provedor, token_acesso, chave_publica, descricao, atualizado_em)
+         VALUES ('mercadopago', $1, $2, $3, NOW())
+         RETURNING *`,
+        [token_acesso, chave_publica, descricao]
+      );
+    }
+
+    return res.status(200).json({ 
+      mensagem: 'Configuração salva com sucesso!',
+      configuracao: resultado.rows[0]
+    });
+  } catch (error) {
+    console.error('Erro ao salvar configuração de pagamento:', error);
+    return res.status(500).json({ erro: error.message });
+  }
+});
+
+// ==================== MERCADO PAGO / PIX ====================
+app.post('/api/pagamento/pix', async (req, res) => {
+  try {
+    const { pedido_id, total, valor_total, valor, cliente, cliente_nome, cliente_email, email, conta_id } = req.body;
+
+    const clienteData = cliente || {};
+    const valorCobranca = Number(total || valor_total || valor || 0);
+    
+    let nomeCompleto = (cliente_nome || clienteData.nome || 'Cliente Teste').trim();
+    let partesNome = nomeCompleto.split(' ');
+    let firstName = partesNome[0] || 'Cliente';
+    let lastName = partesNome.slice(1).join(' ') || 'Teste';
+
+    let emailCliente = (cliente_email || email || clienteData.email || '').trim();
+    if (!emailCliente || !emailCliente.includes('@') || emailCliente.includes('203309016')) {
+      emailCliente = 'comprador_teste_pix@testuser.com';
+    }
+
+    if (valorCobranca <= 0) {
+      return res.status(400).json({ mensagem: 'O valor do pagamento deve ser maior que zero.' });
+    }
+
+    const clientDinamico = await obterClienteMercadoPago(conta_id);
+    const payment = new Payment(clientDinamico);
+    const idempotencyKey = `pix-${pedido_id || Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+
+    const response = await payment.create({
+      body: {
+        transaction_amount: Number(valorCobranca.toFixed(2)),
+        description: `Pedido Lanches da Ju ${pedido_id ? `#${pedido_id}` : ''}`,
+        payment_method_id: 'pix',
+        payer: { email: emailCliente, first_name: firstName, last_name: lastName },
+        external_reference: pedido_id ? String(pedido_id) : undefined
+      },
+      requestOptions: { idempotencyKey: idempotencyKey }
+    });
+
+    const paymentId = response.id;
+    const pointOfInteraction = response.point_of_interaction?.transaction_data;
+
+    if (pedido_id) {
+      await pool.query(
+        'UPDATE pedidos SET pagamento_id = $1 WHERE id = $2',
+        [String(paymentId), pedido_id]
+      ).catch(err => console.error('Aviso ao atualizar pagamento_id:', err.message));
+    }
+
+    return res.json({
+      success: true,
+      pagamentoId: paymentId,
+      status: response.status,
+      qrCodeBase64: pointOfInteraction?.qr_code_base64,
+      pixCopiaECola: pointOfInteraction?.qr_code
+    });
+  } catch (err) {
+    console.error('Erro ao gerar PIX:', err);
+    res.status(500).json({ mensagem: 'Erro ao gerar pagamento PIX: ' + (err.message || 'Erro desconhecido') });
+  }
+});
+
+// ==================== MERCADO PAGO / CARTÃO ====================
+app.post('/api/pagamento/cartao-link', async (req, res) => {
+  try {
+    const { pedido_id, total, valor_total, valor, cliente, cliente_nome, cliente_email, email, conta_id } = req.body;
+    const clienteData = cliente || {};
+    const valorCobranca = Number(total ?? valor_total ?? valor ?? 0);
+
+    if (!Number.isFinite(valorCobranca) || valorCobranca <= 0) {
+      return res.status(400).json({ success: false, mensagem: 'O valor deve ser maior que zero.' });
+    }
+
+    const nomeCompleto = String(cliente_nome || clienteData.nome || 'Cliente').trim();
+    const partesNome = nomeCompleto.split(/\s+/);
+    const firstName = partesNome[0] || 'Cliente';
+    const lastName = partesNome.slice(1).join(' ') || 'Cliente';
+    const emailCliente = String(cliente_email || email || clienteData.email || '').trim();
+
+    if (!emailCliente || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailCliente)) {
+      return res.status(400).json({ success: false, mensagem: 'E-mail inválido.' });
+    }
+
+    const clientDinamico = await obterClienteMercadoPago(conta_id); 
+    const preference = new Preference(clientDinamico);
+
+    // Detecta se está em produção (HTTPS) ou local
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+    const host = req.get('host') || 'localhost:3000';
+    const baseUrl = `${protocol}://${host}`;
+    const isProducao = baseUrl.startsWith('https://');
+
+    const bodyPreferencia = {
+      items: [
+        {
+          id: pedido_id ? String(pedido_id) : 'lanches-da-ju',
+          title: `Pedido Lanches da Ju #${pedido_id || ''}`,
+          quantity: 1,
+          unit_price: Number(valorCobranca.toFixed(2)),
+          currency_id: 'BRL'
+        }
+      ],
+      payer: {
+        email: emailCliente,
+        name: firstName,
+        surname: lastName
+      },
+      payment_methods: {
+        excluded_payment_types: [
+          { id: 'ticket' },
+          { id: 'bank_transfer' }
+        ],
+        installments: 12
+      },
+      back_urls: {
+        success: `${baseUrl}/sucesso`,
+        pending: `${baseUrl}/pendente`,
+        failure: `${baseUrl}/falha`
+      },
+      external_reference: pedido_id ? String(pedido_id) : undefined
+    };
+
+    if (isProducao) {
+      bodyPreferencia.auto_return = 'approved';
+    }
+
+    const response = await preference.create({ body: bodyPreferencia });
+
+    if (pedido_id) {
+      await pool.query(`UPDATE pedidos SET pagamento_id = $1 WHERE id = $2`, [`preference:${response.id}`, pedido_id]);
+    }
+
+    return res.json({
+      success: true,
+      preferenceId: response.id,
+      linkPagamento: response.init_point,
+      linkSandbox: response.sandbox_init_point,
+      pedidoId: pedido_id || null
+    });
+  } catch (err) {
+    console.error('ERRO DETALHADO DO MERCADO PAGO:', err.response?.data || err.message || err);
+    return res.status(500).json({ 
+      success: false, 
+      mensagem: 'Não foi possível gerar o link.', 
+      erro: err.response?.data?.message || err.message 
+    });
+  }
+});
+
 // ==================== CATEGORIAS ====================
 app.get('/api/categorias', async (req, res) => {
   try {
@@ -171,7 +386,7 @@ app.post('/api/produtos', autenticarToken, upload.single('imagem_arquivo'), asyn
       const fileName = `produtos/${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
 
       const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('Produtos') // Alterado para o nome correto do seu bucket
+        .from('Produtos')
         .upload(fileName, req.file.buffer, {
           contentType: req.file.mimetype,
           upsert: true
@@ -183,7 +398,7 @@ app.post('/api/produtos', autenticarToken, upload.single('imagem_arquivo'), asyn
       }
 
       const { data: publicUrlData } = supabase.storage
-        .from('Produtos') // Alterado para o nome correto do seu bucket
+        .from('Produtos')
         .getPublicUrl(fileName);
 
       finalImagemUrl = publicUrlData.publicUrl;
@@ -214,7 +429,7 @@ app.put('/api/produtos/:id', autenticarToken, upload.single('imagem_arquivo'), a
       const fileName = `produtos/${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
 
       const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('Produtos') // Alterado para o nome correto do seu bucket
+        .from('Produtos')
         .upload(fileName, req.file.buffer, {
           contentType: req.file.mimetype,
           upsert: true
@@ -226,7 +441,7 @@ app.put('/api/produtos/:id', autenticarToken, upload.single('imagem_arquivo'), a
       }
 
       const { data: publicUrlData } = supabase.storage
-        .from('Produtos') // Alterado para o nome correto do seu bucket
+        .from('Produtos')
         .getPublicUrl(fileName);
 
       finalImagemUrl = publicUrlData.publicUrl;
@@ -357,256 +572,6 @@ app.get('/api/clientes/:telefone', async (req, res) => {
   } catch (err) {
     console.error('Erro ao buscar cliente:', err);
     res.status(500).json({ mensagem: 'Erro ao buscar cliente' });
-  }
-});
-
-// ==================== CONFIGURAÇÕES DE PAGAMENTO ====================
-app.get('/api/configuracoes/pagamento', async (req, res) => {
-  try {
-    const resultado = await pool.query(
-      'SELECT id, provedor, descricao, chave_publica, atualizado_em FROM configuracoes_pagamento ORDER BY id ASC'
-    );
-    return res.status(200).json(resultado.rows);
-  } catch (error) {
-    console.error('Erro ao listar configurações de pagamento:', error);
-    return res.status(500).json({ erro: error.message });
-  }
-});
-
-app.get('/api/configuracoes/pagamento/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const resultado = await pool.query('SELECT * FROM configuracoes_pagamento WHERE id = $1', [id]);
-    
-    if (resultado.rows.length === 0) {
-      return res.status(404).json({ mensagem: 'Configuração não encontrada.' });
-    }
-    
-    return res.status(200).json(resultado.rows[0]);
-  } catch (error) {
-    console.error('Erro ao buscar configuração:', error);
-    return res.status(500).json({ erro: error.message });
-  }
-});
-
-app.post('/api/configuracoes/pagamento', async (req, res) => {
-  try {
-    const { id, token_acesso, chave_publica, descricao } = req.body;
-
-    let resultado;
-    if (id) {
-      resultado = await pool.query(
-        `UPDATE configuracoes_pagamento 
-         SET token_acesso = COALESCE(NULLIF($1, ''), token_acesso), 
-             chave_publica = $2, 
-             descricao = $3, 
-             atualizado_em = NOW() 
-         WHERE id = $4 RETURNING *`,
-        [token_acesso, chave_publica, descricao, id]
-      );
-    } else {
-      resultado = await pool.query(
-        `INSERT INTO configuracoes_pagamento (provedor, token_acesso, chave_publica, descricao, atualizado_em)
-         VALUES ('mercadopago', $1, $2, $3, NOW())
-         RETURNING *`,
-        [token_acesso, chave_publica, descricao]
-      );
-    }
-
-    return res.status(200).json({ 
-      mensagem: 'Configuração salva com sucesso!',
-      configuracao: resultado.rows[0]
-    });
-  } catch (error) {
-    console.error('Erro ao salvar configuração de pagamento:', error);
-    return res.status(500).json({ erro: error.message });
-  }
-});
-
-// ==================== MERCADO PAGO / PIX ====================
-app.post('/api/pagamento/pix', async (req, res) => {
-  try {
-    const { pedido_id, total, valor_total, valor, cliente, cliente_nome, cliente_email, email } = req.body;
-
-    const clienteData = cliente || {};
-    const valorCobranca = Number(total || valor_total || valor || 0);
-    
-    let nomeCompleto = (cliente_nome || clienteData.nome || 'Cliente Teste').trim();
-    let partesNome = nomeCompleto.split(' ');
-    let firstName = partesNome[0] || 'Cliente';
-    let lastName = partesNome.slice(1).join(' ') || 'Teste';
-
-    let emailCliente = (cliente_email || email || clienteData.email || '').trim();
-    if (!emailCliente || !emailCliente.includes('@') || emailCliente.includes('203309016')) {
-      emailCliente = 'comprador_teste_pix@testuser.com';
-    }
-
-    if (valorCobranca <= 0) {
-      return res.status(400).json({ mensagem: 'O valor do pagamento deve ser maior que zero.' });
-    }
-
-    const clientDinamico = await obterClienteMercadoPago();
-    const payment = new Payment(clientDinamico);
-    const idempotencyKey = `pix-${pedido_id || Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-
-    const response = await payment.create({
-      body: {
-        transaction_amount: Number(valorCobranca.toFixed(2)),
-        description: `Pedido Lanches da Ju ${pedido_id ? `#${pedido_id}` : ''}`,
-        payment_method_id: 'pix',
-        payer: { email: emailCliente, first_name: firstName, last_name: lastName },
-        external_reference: pedido_id ? String(pedido_id) : undefined
-      },
-      requestOptions: { idempotencyKey: idempotencyKey }
-    });
-
-    const paymentId = response.id;
-    const pointOfInteraction = response.point_of_interaction?.transaction_data;
-
-    if (pedido_id) {
-      await pool.query(
-        'UPDATE pedidos SET pagamento_id = $1 WHERE id = $2',
-        [String(paymentId), pedido_id]
-      ).catch(err => console.error('Aviso ao atualizar pagamento_id:', err.message));
-    }
-
-    return res.json({
-      success: true,
-      pagamentoId: paymentId,
-      status: response.status,
-      qrCodeBase64: pointOfInteraction?.qr_code_base64,
-      pixCopiaECola: pointOfInteraction?.qr_code
-    });
-  } catch (err) {
-    console.error('Erro ao gerar PIX:', err);
-    res.status(500).json({ mensagem: 'Erro ao gerar pagamento PIX: ' + (err.message || 'Erro desconhecido') });
-  }
-});
-
-// ==================== MERCADO PAGO / CARTÃO ====================
-app.post('/api/pagamento/cartao-link', async (req, res) => {
-  try {
-    const { pedido_id, total, valor_total, valor, cliente, cliente_nome, cliente_email, email } = req.body;
-    const clienteData = cliente || {};
-    const valorCobranca = Number(total ?? valor_total ?? valor ?? 0);
-
-    if (!Number.isFinite(valorCobranca) || valorCobranca <= 0) {
-      return res.status(400).json({ success: false, mensagem: 'O valor deve ser maior que zero.' });
-    }
-
-    const nomeCompleto = String(cliente_nome || clienteData.nome || 'Cliente').trim();
-    const partesNome = nomeCompleto.split(/\s+/);
-    const firstName = partesNome[0] || 'Cliente';
-    const lastName = partesNome.slice(1).join(' ') || 'Cliente';
-    const emailCliente = String(cliente_email || email || clienteData.email || '').trim();
-
-    if (!emailCliente || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailCliente)) {
-      return res.status(400).json({ success: false, mensagem: 'E-mail inválido.' });
-    }
-
-    const clientDinamico = await obterClienteMercadoPago();
-    const preference = new Preference(clientDinamico);
-
-    const response = await preference.create({
-      body: {
-        items: [{
-          id: pedido_id ? String(pedido_id) : 'lanches-da-ju',
-          title: `Pedido Lanches da Ju #${pedido_id || ''}`,
-          quantity: 1,
-          unit_price: Number(valorCobranca.toFixed(2)),
-          currency_id: 'BRL'
-        }],
-        payer: { email: emailCliente, name: firstName, surname: lastName },
-        payment_methods: { excluded_payment_types: [{ id: 'ticket' }, { id: 'bank_transfer' }], installments: 12 },
-        auto_return: 'approved',
-        external_reference: pedido_id ? String(pedido_id) : undefined
-      }
-    });
-
-    if (pedido_id) {
-      await pool.query(`UPDATE pedidos SET pagamento_id = $1 WHERE id = $2`, [`preference:${response.id}`, pedido_id]);
-    }
-
-    return res.json({
-      success: true,
-      preferenceId: response.id,
-      linkPagamento: response.init_point,
-      linkSandbox: response.sandbox_init_point,
-      pedidoId: pedido_id || null
-    });
-  } catch (err) {
-    console.error('Erro ao gerar link de cartão:', err.message);
-    return res.status(500).json({ success: false, mensagem: 'Não foi possível gerar o link.', erro: err.message });
-  }
-});
-
-// ==================== WEBHOOK MERCADO PAGO ====================
-app.post('/api/webhook/mercadopago', async (req, res) => {
-  try {
-    const data = req.body.data;
-    if (data && data.id) {
-      const paymentId = data.id;
-      await pool.query(
-        `UPDATE pedidos SET status = 'Pendente', pagamento_status = 'Aprovado' WHERE pagamento_id = $1`,
-        [paymentId]
-      );
-    }
-    return res.status(200).send('OK');
-  } catch (err) {
-    console.error('Erro no webhook:', err);
-    return res.status(200).send('OK com avisos');
-  }
-});
-
-// ==================== TAXAS DE ENTREGA ====================
-app.get('/api/taxas-entrega', async (req, res) => {
-  try {
-    const resultado = await pool.query('SELECT * FROM taxas_entrega ORDER BY bairro ASC');
-    res.json(resultado.rows);
-  } catch (err) {
-    res.status(500).json({ mensagem: 'Erro ao buscar taxas de entrega' });
-  }
-});
-
-app.post('/api/taxas-entrega', autenticarToken, async (req, res) => {
-  const { bairro, valor } = req.body;
-  if (!bairro || valor === undefined) return res.status(400).json({ mensagem: 'Bairro e valor são obrigatórios.' });
-
-  try {
-    const resultado = await pool.query('INSERT INTO taxas_entrega (bairro, valor) VALUES ($1, $2) RETURNING *', [bairro.trim(), Number(valor)]);
-    res.status(201).json(resultado.rows[0]);
-  } catch (err) {
-    res.status(500).json({ mensagem: 'Erro ao cadastrar taxa' });
-  }
-});
-
-app.put('/api/taxas-entrega/:id', autenticarToken, async (req, res) => {
-  const { id } = req.params;
-  const { bairro, valor, ativo } = req.body;
-  try {
-    const resultado = await pool.query(`UPDATE taxas_entrega SET bairro = $1, valor = $2, ativo = $3 WHERE id = $4 RETURNING *`, [bairro, Number(valor), ativo ?? true, id]);
-    res.json(resultado.rows[0]);
-  } catch (err) {
-    res.status(500).json({ mensagem: 'Erro ao atualizar taxa' });
-  }
-});
-
-app.delete('/api/taxas-entrega/:id', autenticarToken, async (req, res) => {
-  const { id } = req.params;
-  try {
-    await pool.query('DELETE FROM taxas_entrega WHERE id = $1', [id]);
-    res.json({ mensagem: 'Taxa excluída com sucesso!' });
-  } catch (err) {
-    res.status(500).json({ mensagem: 'Erro ao excluir taxa' });
-  }
-});
-
-app.get('/api/taxas-entrega/publicas', async (req, res) => {
-  try {
-    const resultado = await pool.query('SELECT id, bairro, valor FROM taxas_entrega WHERE ativo = true ORDER BY bairro ASC');
-    res.json(resultado.rows);
-  } catch (err) {
-    res.status(500).json({ mensagem: 'Erro ao carregar bairros' });
   }
 });
 

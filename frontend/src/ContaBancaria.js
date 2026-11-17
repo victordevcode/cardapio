@@ -15,10 +15,10 @@ export default function TelaConfiguracaoPagamento() {
   const [carregando, setCarregando] = useState(false);
   const [mensagem, setMensagem] = useState('');
 
-  // Carregar listagem ao abrir
+  // Carregar listagem ao abrir (Compatível com Local e Render)
   const carregarContas = async () => {
     try {
-      const resposta = await axios.get('http://localhost:3000/api/configuracoes/pagamento');
+      const resposta = await axios.get('/api/configuracoes/pagamento');
       setContas(resposta.data);
     } catch (erro) {
       console.error('Erro ao carregar contas:', erro);
@@ -42,7 +42,7 @@ export default function TelaConfiguracaoPagamento() {
   const abrirEditar = async (id) => {
     try {
       setMensagem('');
-      const resposta = await axios.get(`http://localhost:3000/api/configuracoes/pagamento/${id}`);
+      const resposta = await axios.get(`/api/configuracoes/pagamento/${id}`);
       setIdEdicao(resposta.data.id);
       setDescricao(resposta.data.descricao || '');
       setTokenAcesso(resposta.data.token_acesso || '');
@@ -60,7 +60,7 @@ export default function TelaConfiguracaoPagamento() {
     setMensagem('');
 
     try {
-      await axios.post('http://localhost:3000/api/configuracoes/pagamento', {
+      await axios.post('/api/configuracoes/pagamento', {
         id: idEdicao,
         token_acesso: tokenAcesso,
         chave_publica: chavePublica,
@@ -86,7 +86,7 @@ export default function TelaConfiguracaoPagamento() {
             </h2>
             <button
               onClick={abrirNovo}
-              className="bg-orange-600 text-white px-4 py-2 rounded-md hover:bg-orange-700 transition font-medium"
+              className="bg-orange-600 text-white px-4 py-2 rounded-md hover:bg-orange-700 transition font-medium cursor-pointer"
             >
               + Nova Conta
             </button>
@@ -106,7 +106,7 @@ export default function TelaConfiguracaoPagamento() {
                   </div>
                   <button
                     onClick={() => abrirEditar(conta.id)}
-                    className="bg-gray-200 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-300 transition text-sm font-medium"
+                    className="bg-gray-200 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-300 transition text-sm font-medium cursor-pointer"
                   >
                     Editar
                   </button>
@@ -123,9 +123,9 @@ export default function TelaConfiguracaoPagamento() {
             </h2>
             <button
               onClick={() => setTela('lista')}
-              className="text-gray-600 hover:text-gray-800 text-sm font-medium"
+              className="text-gray-600 hover:text-gray-800 text-sm font-medium cursor-pointer"
             >
-              ← Voltar para a lista
+              ← Voltar para la lista
             </button>
           </div>
 
@@ -181,13 +181,13 @@ export default function TelaConfiguracaoPagamento() {
               />
             </div>
 
-                <button
-                  type="submit"
-                  disabled={carregando}
-                  className="w-full bg-orange-600 text-white p-2 rounded-md hover:bg-orange-700 transition font-medium"
-                >
-                  {carregando ? 'A salvar...' : 'Salvar Configuração'}
-                </button>
+            <button
+              type="submit"
+              disabled={carregando}
+              className="w-full bg-orange-600 text-white p-2 rounded-md hover:bg-orange-700 transition font-medium cursor-pointer"
+            >
+              {carregando ? 'Salvando...' : 'Salvar Configuração'}
+            </button>
           </form>
         </div>
       )}
