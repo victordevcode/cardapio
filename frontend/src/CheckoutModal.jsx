@@ -17,10 +17,6 @@ export function CheckoutModal({ carrinho, total, onClose, onPedidoConcluido }) {
   const [formaPagamento, setFormaPagamento] = useState('pix');
   const [trocoPara, setTrocoPara] = useState('');
 
-  // Estados para Contas de Pagamento do Banco (Tokens dinâmicos)
-  const [contasPagamento, setContasPagamento] = useState([]);
-  const [contaSelecionadaId, setContaSelecionadaId] = useState('');
-
   const [loading, setLoading] = useState(false);
   const [carregandoBairros, setCarregandoBairros] = useState(true);
 
@@ -31,33 +27,26 @@ export function CheckoutModal({ carrinho, total, onClose, onPedidoConcluido }) {
   // Total Final (Itens + Entrega)
   const totalFinal = Number(total || 0) + Number(taxaEntrega || 0);
 
-  // 1. Carregar Bairros e Contas de Pagamento do Backend
+  // 1. Carregar Bairros do Backend
   useEffect(() => {
     async function carregarDadosIniciais() {
       try {
         setCarregandoBairros(true);
         
-        // Tenta rota pública de taxas, senão tenta a padrão
         let resTaxas = await fetch('/api/taxas-entrega/publicas');
         if (!resTaxas.ok) {
           resTaxas = await fetch('/api/taxas-entrega');
         }
+        
         if (resTaxas.ok) {
-          const dadosBairros = await resTaxas.json();
-          setBairros(dadosBairros);
-        }
-
-        // Carregar contas de pagamento cadastradas no banco (Tokens)
-        const resContas = await fetch('/api/configuracoes/pagamento');
-        if (resContas.ok) {
-          const listaContas = await resContas.json();
-          setContasPagamento(listaContas);
-          if (listaContas.length > 0) {
-            setContaSelecionadaId(listaContas[0].id); // Seleciona a primeira conta por padrão
+          const contentType = resTaxas.headers.get("content-type");
+          if (contentType && contentType.includes("application/json")) {
+            const dadosBairros = await resTaxas.json();
+            setBairros(dadosBairros);
           }
         }
       } catch (e) {
-        console.error('Erro ao carregar dados iniciais:', e);
+        console.error('Erro ao carregar bairros:', e);
       } finally {
         setCarregandoBairros(false);
       }
@@ -126,7 +115,7 @@ export function CheckoutModal({ carrinho, total, onClose, onPedidoConcluido }) {
     e.preventDefault();
 
     if (!bairroNome) {
-      alert('Por favor, selecione ou informe o seu bairro.');
+      alert('Por favor, selecione o seu bairro.');
       return;
     }
 
@@ -153,8 +142,8 @@ export function CheckoutModal({ carrinho, total, onClose, onPedidoConcluido }) {
           body: JSON.stringify({
             total: totalFinal,
             email: email,
-            nome: nome,
-            configId: contaSelecionadaId // Envia o ID da conta/token escolhida no banco
+            nome: nome
+            // Sem enviar configId: o backend pega a conta ativa automaticamente
           }),
         });
 
@@ -193,8 +182,8 @@ export function CheckoutModal({ carrinho, total, onClose, onPedidoConcluido }) {
             total: totalFinal,
             email: email,
             cliente_nome: nome,
-            cliente: clienteData,
-            configId: contaSelecionadaId // Envia o ID da conta/token escolhida no banco
+            cliente: clienteData
+            // Sem enviar configId
           }),
         });
 
@@ -364,29 +353,20 @@ export function CheckoutModal({ carrinho, total, onClose, onPedidoConcluido }) {
                   <div className="p-3 border border-gray-200 rounded-xl text-xs text-gray-400 bg-gray-50">
                     Carregando bairros...
                   </div>
-                ) : bairros.length > 0 ? (
+                ) : (
                   <select
                     required
                     value={bairroSelecionadoId}
                     onChange={handleBairroChange}
                     className="w-full p-3 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-rose-500 outline-none bg-white font-medium cursor-pointer"
                   >
-                    <option value="">Selecione seu bairro...</option>
+                    <option value="" disabled>Selecione seu bairro...</option>
                     {bairros.map((b) => (
                       <option key={b.id} value={b.id}>
                         {b.bairro} — {Number(b.valor) === 0 ? 'Grátis' : `R$ ${Number(b.valor).toFixed(2)}`}
                       </option>
                     ))}
                   </select>
-                ) : (
-                  <input
-                    type="text"
-                    required
-                    placeholder="Informe seu bairro"
-                    value={bairroNome}
-                    onChange={(e) => setBairroNome(e.target.value)}
-                    className="w-full p-3 border border-gray-300 rounded-xl text-base focus:ring-2 focus:ring-rose-500 outline-none"
-                  />
                 )}
               </div>
 
@@ -455,26 +435,6 @@ export function CheckoutModal({ carrinho, total, onClose, onPedidoConcluido }) {
                 </button>
               </div>
             </div>
-
-            {/* SELETOR DE CONTA / TOKEN CADASTRADO NO BANCO (EXIBIDO APENAS PARA PAGAMENTOS ONLINE) */}
-            {(formaPagamento === 'pix' || formaPagamento === 'credito') && contasPagamento.length > 0 && (
-              <div className="bg-orange-50 border border-orange-200 p-3 rounded-xl">
-                <label className="block text-xs font-bold text-orange-800 uppercase mb-1">
-                  Conta de Pagamento (Token Ativo)
-                </label>
-                <select
-                  value={contaSelecionadaId}
-                  onChange={(e) => setContaSelecionadaId(e.target.value)}
-                  className="w-full p-2.5 bg-white border border-orange-300 rounded-lg text-sm focus:ring-2 focus:ring-orange-500 outline-none font-medium cursor-pointer"
-                >
-                  {contasPagamento.map((conta) => (
-                    <option key={conta.id} value={conta.id}>
-                      {conta.descricao || `Conta #${conta.id}`} ({conta.provedor})
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
 
             {formaPagamento === 'dinheiro' && (
               <div className="bg-amber-50 border border-amber-200 p-3 rounded-xl">

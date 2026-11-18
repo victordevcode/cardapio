@@ -642,6 +642,25 @@ app.get('/api/pedidos/kanban', async (req, res) => {
   }
 });
 
+// ==================== TAXAS DE ENTREGA ====================
+app.get('/api/taxas-entrega', async (req, res) => {
+  try {
+    const resultado = await pool.query('SELECT * FROM taxas_entrega ORDER BY bairro ASC');
+    res.json(resultado.rows);
+  } catch (err) {
+    res.status(500).json({ mensagem: 'Erro ao buscar taxas de entrega' });
+  }
+});
+
+app.get('/api/taxas-entrega/publicas', async (req, res) => {
+  try {
+    const resultado = await pool.query('SELECT id, bairro, valor FROM taxas_entrega WHERE ativo = true ORDER BY bairro ASC');
+    res.json(resultado.rows);
+  } catch (err) {
+    res.status(500).json({ mensagem: 'Erro ao carregar bairros' });
+  }
+});
+
 // ==================== RELATÓRIOS ====================
 app.get('/api/relatorios', autenticarToken, async (req, res) => {
   try {
