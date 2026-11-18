@@ -15,32 +15,48 @@ export default function RelatorioGeral() {
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState(null);
 
-  // Formata data no fuso horário local (YYYY-MM-DD) evitando bug de UTC após as 21h
-  const formatarDataLocal = (data) => {
+  // Formata data e hora no fuso horário local (YYYY-MM-DDThh:mm:ss)
+  const formatarDataLocal = (data, tipo = 'inicio') => {
     const ano = data.getFullYear();
     const mes = String(data.getMonth() + 1).padStart(2, '0');
     const dia = String(data.getDate()).padStart(2, '0');
-    return `${ano}-${mes}-${dia}`;
+    
+    if (tipo === 'fim') {
+      return `${ano}-${mes}-${dia}T23:59:59`;
+    }
+    return `${ano}-${mes}-${dia}T00:00:00`;
   };
 
   // Calcular datas do período selecionado
   const obterDatasFiltro = useCallback(() => {
     const hoje = new Date();
-    const strHoje = formatarDataLocal(hoje);
 
     if (periodo === 'hoje') {
-      return { inicio: strHoje, fim: strHoje };
+      return { 
+        inicio: formatarDataLocal(hoje, 'inicio'), 
+        fim: formatarDataLocal(hoje, 'fim') 
+      };
     }
     if (periodo === '7dias') {
       const d7 = new Date();
       d7.setDate(hoje.getDate() - 7);
-      return { inicio: formatarDataLocal(d7), fim: strHoje };
+      return { 
+        inicio: formatarDataLocal(d7, 'inicio'), 
+        fim: formatarDataLocal(hoje, 'fim') 
+      };
     }
     if (periodo === 'mes') {
       const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
-      return { inicio: formatarDataLocal(inicioMes), fim: strHoje };
+      return { 
+        inicio: formatarDataLocal(inicioMes, 'inicio'), 
+        fim: formatarDataLocal(hoje, 'fim') 
+      };
     }
-    return { inicio: dataInicio, fim: dataFim };
+    // Se for custom, garante que adiciona o horário de início e fim caso venha apenas YYYY-MM-DD
+    return { 
+      inicio: dataInicio ? `${dataInicio}T00:00:00` : '', 
+      fim: dataFim ? `${dataFim}T23:59:59` : '' 
+    };
   }, [periodo, dataInicio, dataFim]);
 
   const carregarRelatorio = useCallback(async () => {

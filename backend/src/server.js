@@ -664,7 +664,23 @@ app.get('/api/taxas-entrega/publicas', async (req, res) => {
 // ==================== RELATÓRIOS ====================
 app.get('/api/relatorios', autenticarToken, async (req, res) => {
   try {
-    const resultado = await pool.query('SELECT * FROM pedidos ORDER BY id DESC');
+    const { data_inicio, data_fim } = req.query;
+
+    let query = 'SELECT * FROM pedidos WHERE 1=1';
+    const params = [];
+
+    if (data_inicio) {
+      params.push(data_inicio);
+      query += ` AND criado_em >= $${params.length}`;
+    }
+    if (data_fim) {
+      params.push(data_fim);
+      query += ` AND criado_em <= $${params.length}`;
+    }
+
+    query += ' ORDER BY id DESC';
+
+    const resultado = await pool.query(query, params);
     const pedidos = resultado.rows;
 
     const totalPedidos = pedidos.length;
@@ -673,11 +689,32 @@ app.get('/api/relatorios', autenticarToken, async (req, res) => {
     const faturamentoProdutos = faturamentoTotal - totalTaxasEntrega;
     const ticketMedio = totalPedidos > 0 ? faturamentoTotal / totalPedidos : 0;
 
+    // Agrupamento por Bairro
+    const porBairro = {};
+    pedidos.forEach(p => {
+      const bairro = p.bairro || p.endereco_bairro || 'Não informado';
+      if (!porBairro[bairro]) {
+        porBairro[bairro] = { qtd: 0, totalTaxas: 0 };
+      }
+      porBairro[bairro].qtd += 1;
+      porBairro[bairro].totalTaxas += Number(p.taxa_entrega || 0);
+    });
+
+    // Agrupamento por Forma de Pagamento
+    const porFormaPagamento = {};
+    pedidos.forEach(p => {
+      const forma = p.forma_pagamento || p.pagamento || 'Não informada';
+      porFormaPagamento[forma] = (porFormaPagamento[forma] || 0) + 1;
+    });
+
     res.json({
       resumo: { totalPedidos, faturamentoProdutos, totalTaxasEntrega, faturamentoTotal, ticketMedio },
+      porBairro,
+      porFormaPagamento,
       pedidos
     });
   } catch (err) {
+    console.error('Erro ao gerar relatório:', err);
     res.status(500).json({ mensagem: 'Erro ao gerar relatório' });
   }
 });
