@@ -3,6 +3,8 @@ import { CheckoutModal } from './CheckoutModal';
 import { ModalSaborSuco } from './ModalSaborSuco';
 import { supabase } from './services/supabase';
 
+const INTERVALO_ATUALIZACAO_MS = 30000; // 30 segundos
+
 export default function CardapioCliente({ aoVoltar }) {
   const [produtos, setProdutos] = useState([]);
   const [categorias, setCategorias] = useState([]);
@@ -18,7 +20,7 @@ export default function CardapioCliente({ aoVoltar }) {
   // Modal de Sabor de Suco
   const [modalSucoAberto, setModalSucoAberto] = useState(false);
   const [sucoSelecionado, setSucoSelecionado] = useState(null);
-  
+
   // Modal de Checkout / Cadastro do Cliente
   const [modalCheckoutAberto, setModalCheckoutAberto] = useState(false);
 
@@ -47,9 +49,12 @@ export default function CardapioCliente({ aoVoltar }) {
   }, []);
 
   // Carregar Categorias e TODOS os Produtos
-  const carregarDados = useCallback(async () => {
+  // `silencioso = true` atualiza em segundo plano sem mostrar tela de carregamento
+  const carregarDados = useCallback(async ({ silencioso = false } = {}) => {
     try {
-      setCarregando(true);
+      if (!silencioso) {
+        setCarregando(true);
+      }
 
       const [resCategorias, resProdutos] = await Promise.all([
         supabase.from('categorias').select('*'),
@@ -60,6 +65,7 @@ export default function CardapioCliente({ aoVoltar }) {
       if (resProdutos.error) throw resProdutos.error;
 
       const dadosCategorias = resCategorias.data || [];
+      const dadosProdutos = resProdutos.data || [];
       const ordemDesejada = ['lanches', 'porções', 'porcoes', 'bebidas'];
 
       const categoriasOrdenadas = dadosCategorias.sort((a, b) => {
@@ -73,16 +79,54 @@ export default function CardapioCliente({ aoVoltar }) {
       });
 
       setCategorias(categoriasOrdenadas);
-      setProdutos(resProdutos.data || []);
+      setProdutos(dadosProdutos);
+
+      // Remove da sacola itens que ficaram indisponíveis ou foram removidos
+      setCarrinho((carrinhoAtual) => {
+        if (carrinhoAtual.length === 0) return carrinhoAtual;
+
+        return carrinhoAtual.filter((item) => {
+          const prodAtual = dadosProdutos.find((p) => String(p.id) === String(item.produtoId));
+          return prodAtual && prodAtual.disponivel !== false && prodAtual.disponivel !== 0;
+        });
+      });
     } catch (err) {
       console.error('Erro ao buscar cardápio no Supabase:', err.message);
     } finally {
-      setCarregando(false);
+      if (!silencioso) {
+        setCarregando(false);
+      }
     }
   }, []);
 
+  // Carga inicial + polling automático + atualização ao voltar para a aba
   useEffect(() => {
-    carregarDados();
+    carregarDados({ silencioso: false });
+
+    const intervaloAtualizacao = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        carregarDados({ silencioso: true });
+      }
+    }, INTERVALO_ATUALIZACAO_MS);
+
+    const aoFocarJanela = () => {
+      carregarDados({ silencioso: true });
+    };
+
+    const aoMudarVisibilidade = () => {
+      if (document.visibilityState === 'visible') {
+        carregarDados({ silencioso: true });
+      }
+    };
+
+    window.addEventListener('focus', aoFocarJanela);
+    document.addEventListener('visibilitychange', aoMudarVisibilidade);
+
+    return () => {
+      clearInterval(intervaloAtualizacao);
+      window.removeEventListener('focus', aoFocarJanela);
+      document.removeEventListener('visibilitychange', aoMudarVisibilidade);
+    };
   }, [carregarDados]);
 
   const toggleExpandir = (categoriaId) => {
@@ -165,7 +209,7 @@ export default function CardapioCliente({ aoVoltar }) {
       <div className="bg-gradient-to-br from-neutral-950 via-stone-900 to-red-950 text-white shadow-xl border-b-4 border-amber-400">
         <div className="max-w-6xl mx-auto px-4 py-7 sm:py-9">
           <div className="flex flex-col md:flex-row items-center justify-between gap-6">
-            
+
             {/* Logo e Identidade */}
             <div className="flex flex-col sm:flex-row items-center text-center sm:text-left gap-5">
               <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-full p-1 bg-gradient-to-tr from-amber-400 via-red-600 to-amber-300 shadow-lg flex-shrink-0">

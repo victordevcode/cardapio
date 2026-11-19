@@ -643,6 +643,18 @@ app.get('/api/pedidos/kanban', async (req, res) => {
 });
 
 // ==================== TAXAS DE ENTREGA ====================
+// Listar taxas de entrega
+app.get('/api/taxas-entrega', async (req, res) => {
+  try {
+    const resultado = await pool.query(
+      'SELECT * FROM taxas_entrega ORDER BY bairro ASC'
+    );
+    res.json(resultado.rows);
+  } catch (err) {
+    console.error('Erro ao buscar taxas de entrega:', err);
+    res.status(500).json({ mensagem: 'Erro ao buscar taxas de entrega' });
+  }
+});
 // Criar nova taxa de entrega
 app.post('/api/taxas-entrega', async (req, res) => {
   try {

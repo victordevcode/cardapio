@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './Login';
 import ListagemCardapio from './ListagemCardapio';
 import CadastroCardapio from './CadastroCardapio';
@@ -11,18 +11,24 @@ import ContaBancaria from './ContaBancaria';
 
 export default function App() {
   return (
-    <Router>
+    <BrowserRouter>
       <Routes>
-        {/* Rota pública do cliente - abre direto sem pedir login */}
-        <Route path="/cardapio" element={<CardapioCliente />} />
-        
-        {/* Raiz redirecionando para o cardápio do cliente */}
-        <Route path="/" element={<Navigate to="/cardapio" replace />} />
+        {/* Pedido online (com sacola, entrega e checkout) */}
+        <Route path="/menu" element={<CardapioCliente />} />
 
-        {/* Rotas administrativas protegidas */}
+        {/* Consulta na loja via QR Code (somente visualização e disponibilidade) */}
+        <Route path="/cardapio" element={<ListagemCardapio />} />
+
+        {/* Painel administrativo protegido */}
         <Route path="/admin" element={<PainelAdminRoute />} />
+
+        {/* Raiz "/" direciona para /menu */}
+        <Route path="/" element={<Navigate to="/menu" replace />} />
+
+        {/* Fallback para rotas desconhecidas */}
+        <Route path="*" element={<Navigate to="/menu" replace />} />
       </Routes>
-    </Router>
+    </BrowserRouter>
   );
 }
 
@@ -62,14 +68,14 @@ function PainelAdminContainer() {
         {/* ================= 1. CABEÇALHO FIXO COM A LOGO ================= */}
         <header className="bg-gradient-to-r from-neutral-900 via-red-950 to-neutral-900 rounded-2xl text-white p-4 shadow-md border border-stone-800 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-4">
-            <div 
+            <div
               onClick={() => setMenuVisivel(!menuVisivel)}
               className="w-14 h-14 rounded-full overflow-hidden border-2 border-amber-400 shadow-md cursor-pointer hover:scale-105 transition-transform shrink-0"
               title="Clique para alternar o menu"
             >
-              <img 
-                src="https://kibexqwtcypwaldgsnba.supabase.co/storage/v1/object/public/Produtos/logo_ju.png" 
-                alt="Lanches da Jú" 
+              <img
+                src="https://kibexqwtcypwaldgsnba.supabase.co/storage/v1/object/public/Produtos/logo_ju.png"
+                alt="Lanches da Jú"
                 className="w-full h-full object-cover"
               />
             </div>
@@ -78,7 +84,7 @@ function PainelAdminContainer() {
                 🍔 Lanches da Jú
               </h1>
               <p className="text-stone-300 text-xs font-medium">
-                Painel Administrativo &amp; Gestão de Pedidos
+                Painel Administrativo & Gestão de Pedidos
               </p>
             </div>
           </div>
@@ -163,10 +169,10 @@ function PainelAdminContainer() {
             </div>
 
             <button
-              onClick={() => window.open('/cardapio', '_blank')}
-              className="px-4 py-2 text-sm font-extrabold rounded-lg transition-all cursor-pointer active:scale-95 bg-amber-100 text-red-800 hover:bg-amber-200 border border-amber-300"
+              onClick={() => window.open('/menu', '_blank')}
+              className="px-3.5 py-2 text-xs font-extrabold rounded-lg transition-all cursor-pointer active:scale-95 bg-amber-100 text-red-800 hover:bg-amber-200 border border-amber-300"
             >
-              📱 Ver Cardápio (Cliente)
+              🛒 Pedido Online (/menu)
             </button>
           </nav>
         )}

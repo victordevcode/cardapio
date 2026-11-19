@@ -28,21 +28,17 @@ export function CheckoutModal({ carrinho, total, onClose, onPedidoConcluido }) {
   const totalFinal = Number(total || 0) + Number(taxaEntrega || 0);
 
   // 1. Carregar Bairros do Backend
-  useEffect(() => {
+useEffect(() => {
     async function carregarDadosIniciais() {
       try {
         setCarregandoBairros(true);
-        
-        let resTaxas = await fetch('/api/taxas-entrega/publicas');
-        if (!resTaxas.ok) {
-          resTaxas = await fetch('/api/taxas-entrega');
-        }
-        
+
+        const resTaxas = await fetch('/api/taxas-entrega');
         if (resTaxas.ok) {
-          const contentType = resTaxas.headers.get("content-type");
-          if (contentType && contentType.includes("application/json")) {
+          const contentType = resTaxas.headers.get('content-type') || '';
+          if (contentType.includes('application/json')) {
             const dadosBairros = await resTaxas.json();
-            setBairros(dadosBairros);
+            setBairros(Array.isArray(dadosBairros) ? dadosBairros : []);
           }
         }
       } catch (e) {
