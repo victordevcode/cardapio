@@ -643,21 +643,74 @@ app.get('/api/pedidos/kanban', async (req, res) => {
 });
 
 // ==================== TAXAS DE ENTREGA ====================
-app.get('/api/taxas-entrega', async (req, res) => {
+// Criar nova taxa de entrega
+app.post('/api/taxas-entrega', async (req, res) => {
   try {
-    const resultado = await pool.query('SELECT * FROM taxas_entrega ORDER BY bairro ASC');
-    res.json(resultado.rows);
+    const { bairro, valor } = req.body;
+    const bairroLimpo = String(bairro || '').trim();
+    const valorNum = Number(valor);
+
+    if (!bairroLimpo || Number.isNaN(valorNum) || valorNum < 0) {
+      return res.status(400).json({ mensagem: 'Bairro e valor válido são obrigatórios' });
+    }
+
+    const resultado = await pool.query(
+      'INSERT INTO taxas_entrega (bairro, valor, ativo) VALUES ($1, $2, true) RETURNING *',
+      [bairroLimpo, valorNum]
+    );
+
+    res.status(201).json(resultado.rows[0]);
   } catch (err) {
-    res.status(500).json({ mensagem: 'Erro ao buscar taxas de entrega' });
+    console.error('Erro ao cadastrar taxa:', err);
+    res.status(500).json({ mensagem: 'Erro ao cadastrar taxa de entrega' });
   }
 });
 
-app.get('/api/taxas-entrega/publicas', async (req, res) => {
+// Atualizar taxa de entrega existente pelo ID
+app.put('/api/taxas-entrega/:id', async (req, res) => {
   try {
-    const resultado = await pool.query('SELECT id, bairro, valor FROM taxas_entrega WHERE ativo = true ORDER BY bairro ASC');
-    res.json(resultado.rows);
+    const { id } = req.params;
+    const { bairro, valor } = req.body;
+    const bairroLimpo = String(bairro || '').trim();
+    const valorNum = Number(valor);
+
+    if (!bairroLimpo || Number.isNaN(valorNum) || valorNum < 0) {
+      return res.status(400).json({ mensagem: 'Bairro e valor válido são obrigatórios' });
+    }
+
+    const resultado = await pool.query(
+      'UPDATE taxas_entrega SET bairro = $1, valor = $2 WHERE id = $3 RETURNING *',
+      [bairroLimpo, valorNum, id]
+    );
+
+    if (resultado.rowCount === 0) {
+      return res.status(404).json({ mensagem: 'Taxa não encontrada' });
+    }
+
+    res.json(resultado.rows[0]);
   } catch (err) {
-    res.status(500).json({ mensagem: 'Erro ao carregar bairros' });
+    console.error('Erro ao atualizar taxa:', err);
+    res.status(500).json({ mensagem: 'Erro ao atualizar taxa de entrega' });
+  }
+});
+
+// Excluir taxa de entrega pelo ID
+app.delete('/api/taxas-entrega/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const resultado = await pool.query(
+      'DELETE FROM taxas_entrega WHERE id = $1 RETURNING *',
+      [id]
+    );
+
+    if (resultado.rowCount === 0) {
+      return res.status(404).json({ mensagem: 'Taxa não encontrada' });
+    }
+
+    res.json({ mensagem: 'Taxa removida com sucesso' });
+  } catch (err) {
+    console.error('Erro ao excluir taxa:', err);
+    res.status(500).json({ mensagem: 'Erro ao excluir taxa de entrega' });
   }
 });
 

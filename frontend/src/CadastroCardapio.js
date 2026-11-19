@@ -98,10 +98,8 @@ export default function CadastroCardapio() {
 
   const abrirFormularioNovo = () => {
     if (mostrarFormulario && !produtoEditandoId) {
-      // Se já está aberto e em modo cadastro, fecha
       limparFormulario();
     } else {
-      // Abre limpo para novo cadastro (garante que não está em modo edição)
       setNome('');
       setDescricao('');
       setPreco('');
@@ -254,14 +252,14 @@ export default function CadastroCardapio() {
   );
 
   return (
-    <div className="max-w-5xl mx-auto font-sans space-y-6">
+    <div className="max-w-5xl mx-auto font-sans space-y-6 pb-12">
       
       {/* BARRA SUPERIOR COM BOTÃO E INPUT DE BUSCA */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-neutral-900 p-4 rounded-2xl border border-stone-800 shadow-md">
         <button
           type="button"
           onClick={abrirFormularioNovo}
-          className="bg-rose-600 hover:bg-rose-700 text-white font-bold px-4 py-2.5 rounded-xl shadow-sm transition-all flex items-center justify-center gap-2 text-sm cursor-pointer active:scale-95"
+          className="bg-red-600 hover:bg-red-700 text-white font-black px-5 py-2.5 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 text-sm cursor-pointer active:scale-95"
         >
           {mostrarFormulario ? '✕ Fechar Formulário' : '➕ Novo Produto'}
         </button>
@@ -273,13 +271,13 @@ export default function CadastroCardapio() {
             placeholder="🔍 Buscar produto pelo nome..."
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
-            className="w-full pl-3 pr-8 py-2 text-sm border border-gray-200 rounded-xl bg-white focus:ring-2 focus:ring-rose-500 focus:outline-none shadow-xs"
+            className="w-full pl-3 pr-8 py-2 text-sm border border-stone-700 rounded-xl bg-neutral-950 text-white placeholder-stone-400 focus:ring-2 focus:ring-amber-400 focus:outline-none shadow-inner"
           />
           {busca && (
             <button
               type="button"
               onClick={() => setBusca('')}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400 hover:text-gray-600 cursor-pointer"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-stone-400 hover:text-white cursor-pointer"
             >
               ✕
             </button>
@@ -289,16 +287,16 @@ export default function CadastroCardapio() {
 
       {/* FORMULÁRIO DE CADASTRO / EDIÇÃO */}
       {mostrarFormulario && (
-        <div className="bg-white p-6 rounded-2xl border border-gray-200/80 shadow-sm transition-all">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+        <div className="bg-white p-6 rounded-2xl border-2 border-stone-200 shadow-xl transition-all">
+          <div className="flex items-center justify-between mb-6 pb-3 border-b border-stone-100">
+            <h2 className="text-xl font-black text-stone-900 flex items-center gap-2">
               {produtoEditandoId ? '✏️ Editar Produto' : '➕ Cadastrar Novo Produto'}
             </h2>
 
             <button
               type="button"
               onClick={limparFormulario}
-              className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold px-3 py-1.5 rounded-lg transition-all"
+              className="text-xs bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold px-3 py-1.5 rounded-lg transition-all cursor-pointer"
             >
               ✕ Cancelar
             </button>
@@ -306,24 +304,24 @@ export default function CadastroCardapio() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1">Nome do Produto*</label>
+              <label className="block text-xs font-black text-stone-700 mb-1 uppercase tracking-wide">Nome do Produto*</label>
               <input
                 type="text"
                 required
                 placeholder="Ex: X-Salada Especial"
                 value={nome}
                 onChange={(e) => setNome(e.target.value)}
-                className="w-full p-2.5 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-rose-500 focus:outline-none bg-gray-50/50"
+                className="w-full p-3 text-sm border border-stone-300 rounded-xl focus:ring-2 focus:ring-red-600 focus:outline-none bg-stone-50"
               />
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">Categoria*</label>
+                <label className="block text-xs font-black text-stone-700 mb-1 uppercase tracking-wide">Categoria*</label>
                 <select
                   value={categoriaId}
                   onChange={(e) => setCategoriaId(e.target.value)}
-                  className="w-full p-2.5 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-rose-500 focus:outline-none bg-gray-50/50"
+                  className="w-full p-3 text-sm border border-stone-300 rounded-xl focus:ring-2 focus:ring-red-600 focus:outline-none bg-stone-50"
                 >
                   {categorias.map((cat) => (
                     <option key={cat.id} value={cat.id}>{cat.nome}</option>
@@ -332,7 +330,7 @@ export default function CadastroCardapio() {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">Preço (R$)*</label>
+                <label className="block text-xs font-black text-stone-700 mb-1 uppercase tracking-wide">Preço (R$)*</label>
                 <input
                   type="number"
                   step="0.01"
@@ -340,44 +338,44 @@ export default function CadastroCardapio() {
                   placeholder="0.00"
                   value={preco}
                   onChange={(e) => setPreco(e.target.value)}
-                  className="w-full p-2.5 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-rose-500 focus:outline-none bg-gray-50/50"
+                  className="w-full p-3 text-sm border border-stone-300 rounded-xl focus:ring-2 focus:ring-red-600 focus:outline-none bg-stone-50 font-bold text-emerald-700"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-gray-700 mb-1">Descrição</label>
+              <label className="block text-xs font-black text-stone-700 mb-1 uppercase tracking-wide">Descrição</label>
               <textarea
                 rows="2"
                 placeholder="Ingredientes e detalhes do produto..."
                 value={descricao}
                 onChange={(e) => setDescricao(e.target.value)}
-                className="w-full p-2.5 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-rose-500 focus:outline-none bg-gray-50/50"
+                className="w-full p-3 text-sm border border-stone-300 rounded-xl focus:ring-2 focus:ring-red-600 focus:outline-none bg-stone-50"
               />
             </div>
 
-            <div className="border border-gray-200 p-4 rounded-xl bg-gray-50/30 space-y-3">
-              <label className="block text-xs font-bold text-gray-700">Imagem do Produto</label>
+            <div className="border border-stone-200 p-4 rounded-xl bg-stone-50/50 space-y-3">
+              <label className="block text-xs font-black text-stone-700 uppercase tracking-wide">Imagem do Produto</label>
 
-              <div className="flex gap-4 text-xs font-semibold">
-                <label className="flex items-center gap-1.5 cursor-pointer">
+              <div className="flex gap-6 text-xs font-bold text-stone-700">
+                <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="radio"
                     name="tipoImagem"
                     checked={tipoImagem === 'arquivo'}
                     onChange={() => setTipoImagem('arquivo')}
-                    className="accent-rose-600"
+                    className="accent-red-600"
                   />
                   Enviar Arquivo
                 </label>
 
-                <label className="flex items-center gap-1.5 cursor-pointer">
+                <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="radio"
                     name="tipoImagem"
                     checked={tipoImagem === 'url'}
                     onChange={() => setTipoImagem('url')}
-                    className="accent-rose-600"
+                    className="accent-red-600"
                   />
                   Link da Internet (URL)
                 </label>
@@ -388,7 +386,7 @@ export default function CadastroCardapio() {
                   type="file"
                   accept="image/*"
                   onChange={handleFileChange}
-                  className="w-full text-xs text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-rose-50 file:text-rose-700 hover:file:bg-rose-100 cursor-pointer"
+                  className="w-full text-xs text-stone-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-red-50 file:text-red-700 hover:file:bg-red-100 cursor-pointer bg-white border border-stone-200 rounded-xl p-1"
                 />
               ) : (
                 <input
@@ -399,14 +397,14 @@ export default function CadastroCardapio() {
                     setImagemUrl(e.target.value);
                     setPrevia(e.target.value);
                   }}
-                  className="w-full p-2.5 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-rose-500 focus:outline-none bg-white"
+                  className="w-full p-3 text-sm border border-stone-300 rounded-xl focus:ring-2 focus:ring-red-600 focus:outline-none bg-white"
                 />
               )}
 
               {previa && (
                 <div className="pt-2 flex items-center gap-3">
-                  <img src={previa} alt="Prévia" className="w-14 h-14 object-cover rounded-lg border border-gray-200" />
-                  <span className="text-xs text-gray-400">Prévia da imagem selecionada</span>
+                  <img src={previa} alt="Prévia" className="w-14 h-14 object-cover rounded-xl border border-stone-300 shadow-xs" />
+                  <span className="text-xs text-stone-500 font-medium">Prévia da imagem selecionada</span>
                 </div>
               )}
             </div>
@@ -414,8 +412,8 @@ export default function CadastroCardapio() {
             <button
               type="submit"
               disabled={enviando}
-              className={`w-full font-bold py-3 rounded-xl shadow-sm transition-all text-sm text-white cursor-pointer ${
-                produtoEditandoId ? 'bg-amber-600 hover:bg-amber-700' : 'bg-rose-600 hover:bg-rose-700'
+              className={`w-full font-black py-3.5 rounded-xl shadow-md transition-all text-sm text-white cursor-pointer active:scale-98 ${
+                produtoEditandoId ? 'bg-amber-600 hover:bg-amber-700' : 'bg-red-600 hover:bg-red-700'
               }`}
             >
               {enviando ? 'Salvando...' : produtoEditandoId ? 'Salvar Alterações do Produto' : 'Salvar Novo Produto'}
@@ -425,22 +423,25 @@ export default function CadastroCardapio() {
       )}
 
       {/* LISTA DE PRODUTOS FILTRADOS */}
-      <div className="bg-white p-6 rounded-2xl border border-gray-200/80 shadow-sm">
-        <h3 className="text-base font-bold text-gray-900 mb-4 flex items-center justify-between">
+      <div className="bg-white p-6 rounded-2xl border border-stone-200 shadow-md">
+        <h3 className="text-base font-black text-stone-900 mb-5 flex items-center justify-between pb-3 border-b border-stone-100">
           <span className="flex items-center gap-2">🛠️ Gestão de Itens do Cardápio</span>
-          <span className="text-xs bg-gray-100 text-gray-600 px-2.5 py-1 rounded-full font-semibold">
+          <span className="text-xs bg-red-100 text-red-700 px-3 py-1 rounded-full font-black">
             {produtosFiltrados.length} de {produtos.length} {produtos.length === 1 ? 'item' : 'itens'}
           </span>
         </h3>
 
         {carregandoLista ? (
-          <p className="text-xs text-gray-400 text-center py-6">Carregando lista...</p>
+          <div className="py-12 text-center space-y-3">
+            <div className="w-8 h-8 border-4 border-red-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
+            <p className="text-xs text-stone-400 font-medium">Carregando lista...</p>
+          </div>
         ) : produtosFiltrados.length === 0 ? (
-          <p className="text-xs text-gray-400 text-center py-6">
+          <p className="text-xs text-stone-400 text-center py-8 font-medium">
             {busca ? `Nenhum produto encontrado para "${busca}".` : 'Nenhum produto cadastrado ainda.'}
           </p>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-3.5">
             {produtosFiltrados.map((prod) => {
               const estaDisponivel = prod.disponivel !== false && prod.disponivel !== 0;
               const isSuco = (prod.nome || '').toLowerCase().includes('suco');
@@ -448,26 +449,26 @@ export default function CadastroCardapio() {
               return (
                 <div
                   key={prod.id}
-                  className={`p-3.5 rounded-xl border flex flex-col gap-3 transition-all ${
+                  className={`p-4 rounded-xl border flex flex-col gap-3 transition-all ${
                     estaDisponivel 
-                      ? 'bg-gray-50/80 border-gray-200/60 hover:bg-white' 
-                      : 'bg-red-50/40 border-red-200/60 opacity-80'
+                      ? 'bg-stone-50/60 border-stone-200 hover:bg-white hover:border-red-200 hover:shadow-sm' 
+                      : 'bg-stone-100 border-stone-300 opacity-75'
                   }`}
                 >
                   <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
-                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <div className="flex items-center gap-3.5 flex-1 min-w-0">
                       <img
                         src={prod.imagem_url || prod.imagem || 'https://via.placeholder.com/80'}
                         alt={prod.nome}
-                        className="w-12 h-12 object-cover rounded-lg border border-gray-200 flex-shrink-0"
+                        className="w-14 h-14 object-cover rounded-xl border border-stone-300 shadow-2xs flex-shrink-0"
                       />
                       <div className="min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <h4 className="font-bold text-gray-900 text-sm truncate">{prod.nome}</h4>
+                        <div className="flex items-center gap-2.5 flex-wrap">
+                          <h4 className="font-extrabold text-stone-900 text-sm truncate">{prod.nome}</h4>
                           <button
                             type="button"
                             onClick={() => toggleDisponibilidade(prod)}
-                            className={`text-xs font-bold px-3 py-1 rounded-lg border transition-all cursor-pointer shadow-xs active:scale-95 ${
+                            className={`text-xs font-black px-3 py-1 rounded-lg border transition-all cursor-pointer shadow-2xs active:scale-95 ${
                               estaDisponivel 
                                 ? 'bg-emerald-100 text-emerald-800 border-emerald-300 hover:bg-emerald-200' 
                                 : 'bg-red-100 text-red-800 border-red-300 hover:bg-red-200'
@@ -476,27 +477,27 @@ export default function CadastroCardapio() {
                             {estaDisponivel ? '🟢 Disponível' : '🔴 Indisponível'}
                           </button>
                         </div>
-                        <p className="text-[11px] text-gray-500 truncate max-w-md mt-0.5">
+                        <p className="text-xs text-stone-500 truncate max-w-md mt-1">
                           {prod.descricao || 'Sem descrição'}
                         </p>
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between md:justify-end gap-2 w-full md:w-auto pt-2 md:pt-0 border-t md:border-t-0 border-gray-200/60 flex-shrink-0">
-                      <strong className="text-emerald-600 text-sm font-extrabold mr-2">
+                    <div className="flex items-center justify-between md:justify-end gap-2.5 w-full md:w-auto pt-2.5 md:pt-0 border-t md:border-t-0 border-stone-200 flex-shrink-0">
+                      <strong className="text-emerald-700 text-base font-black mr-2">
                         R$ {Number(prod.preco).toFixed(2)}
                       </strong>
                       <button
                         type="button"
                         onClick={() => iniciarEdicao(prod)}
-                        className="text-xs bg-white hover:bg-amber-50 text-amber-700 border border-gray-200 font-bold px-2.5 py-1.5 rounded-lg transition-all cursor-pointer"
+                        className="text-xs bg-stone-100 hover:bg-amber-100 text-amber-900 border border-stone-300 font-extrabold px-3 py-2 rounded-xl transition-all cursor-pointer active:scale-95"
                       >
                         ✏️ Editar
                       </button>
                       <button
                         type="button"
                         onClick={() => excluirProduto(prod.id, prod.nome)}
-                        className="text-xs bg-white hover:bg-rose-50 text-rose-600 border border-gray-200 font-bold px-2.5 py-1.5 rounded-lg transition-all cursor-pointer"
+                        className="text-xs bg-stone-100 hover:bg-red-100 text-red-700 border border-stone-300 font-extrabold px-3 py-2 rounded-xl transition-all cursor-pointer active:scale-95"
                       >
                         🗑️ Excluir
                       </button>
@@ -505,14 +506,14 @@ export default function CadastroCardapio() {
 
                   {/* SE FOR SUCO, EXIBE OS SABORES DIRETAMENTE NO CARD */}
                   {isSuco && saboresSuco.length > 0 && (
-                    <div className="pt-2 border-t border-gray-200/60 flex flex-wrap items-center gap-2">
-                      <span className="text-xs font-bold text-gray-500 mr-1">Sabores:</span>
+                    <div className="pt-2.5 border-t border-stone-200/80 flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-black text-stone-500 mr-1 uppercase">Sabores:</span>
                       {saboresSuco.map((saborObj) => (
                         <button
                           key={saborObj.id}
                           type="button"
                           onClick={() => toggleStatusSabor(saborObj)}
-                          className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs ${
+                          className={`text-xs font-extrabold px-3 py-1 rounded-lg border transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs active:scale-95 ${
                             saborObj.ativo
                               ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
                               : 'bg-red-50 text-red-800 border-red-300 hover:bg-red-100'
