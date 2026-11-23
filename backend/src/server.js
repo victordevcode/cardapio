@@ -137,7 +137,7 @@ app.post('/api/login', async (req, res) => {
 app.get('/api/configuracoes/pagamento', async (req, res) => {
   try {
     const resultado = await pool.query(
-      'SELECT id, provedor, descricao, chave_publica, atualizado_em FROM configuracoes_pagamento ORDER BY id ASC'
+      'SELECT id, provedor, descricao, chave_publica, ativo, atualizado_em FROM configuracoes_pagamento ORDER BY id ASC'
     );
     return res.status(200).json(resultado.rows);
   } catch (error) {
@@ -150,11 +150,11 @@ app.get('/api/configuracoes/pagamento/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const resultado = await pool.query('SELECT * FROM configuracoes_pagamento WHERE id = $1', [id]);
-    
+
     if (resultado.rows.length === 0) {
       return res.status(404).json({ mensagem: 'Configuração não encontrada.' });
     }
-    
+
     return res.status(200).json(resultado.rows[0]);
   } catch (error) {
     console.error('Erro ao buscar configuração:', error);
@@ -162,31 +162,65 @@ app.get('/api/configuracoes/pagamento/:id', async (req, res) => {
   }
 });
 
+app.patch('/api/configuracoes/pagamento/:id/ativo', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { ativo } = req.body;
+
+    if (typeof ativo !== 'boolean') {
+      return res.status(400).json({ mensagem: 'O campo "ativo" deve ser booleano (true ou false).' });
+    }
+
+    const resultado = await pool.query(
+      `UPDATE configuracoes_pagamento
+       SET ativo = $1,
+           atualizado_em = NOW()
+       WHERE id = $2
+       RETURNING id, provedor, descricao, chave_publica, ativo, atualizado_em`,
+      [ativo, id]
+    );
+
+    if (resultado.rows.length === 0) {
+      return res.status(404).json({ mensagem: 'Configuração não encontrada.' });
+    }
+
+    return res.status(200).json({
+      mensagem: 'Status ativo atualizado com sucesso!',
+      configuracao: resultado.rows[0]
+    });
+  } catch (error) {
+    console.error('Erro ao atualizar status ativo:', error);
+    return res.status(500).json({ erro: error.message });
+  }
+});
+
 app.post('/api/configuracoes/pagamento', async (req, res) => {
   try {
-    const { id, token_acesso, chave_publica, descricao } = req.body;
+    const { id, token_acesso, chave_publica, descricao, ativo } = req.body;
+    const statusAtivo = typeof ativo === 'boolean' ? ativo : false;
 
     let resultado;
     if (id) {
       resultado = await pool.query(
-        `UPDATE configuracoes_pagamento 
-         SET token_acesso = COALESCE(NULLIF($1, ''), token_acesso), 
-             chave_publica = $2, 
-             descricao = $3, 
-             atualizado_em = NOW() 
-         WHERE id = $4 RETURNING *`,
-        [token_acesso, chave_publica, descricao, id]
+        `UPDATE configuracoes_pagamento
+         SET token_acesso = COALESCE(NULLIF($1, ''), token_acesso),
+             chave_publica = $2,
+             descricao = $3,
+             ativo = $4,
+             atualizado_em = NOW()
+         WHERE id = $5 RETURNING *`,
+        [token_acesso, chave_publica, descricao, statusAtivo, id]
       );
     } else {
       resultado = await pool.query(
-        `INSERT INTO configuracoes_pagamento (provedor, token_acesso, chave_publica, descricao, atualizado_em)
-         VALUES ('mercadopago', $1, $2, $3, NOW())
+        `INSERT INTO configuracoes_pagamento (provedor, token_acesso, chave_publica, descricao, ativo, atualizado_em)
+         VALUES ('mercadopago', $1, $2, $3, $4, NOW())
          RETURNING *`,
-        [token_acesso, chave_publica, descricao]
+        [token_acesso, chave_publica, descricao, statusAtivo]
       );
     }
 
-    return res.status(200).json({ 
+    return res.status(200).json({
       mensagem: 'Configuração salva com sucesso!',
       configuracao: resultado.rows[0]
     });
@@ -196,6 +230,28 @@ app.post('/api/configuracoes/pagamento', async (req, res) => {
   }
 });
 
+// Garante que apenas uma conta com ativo = true seja usada quando conta_id não for informada
+async function obterContaAtivaParaCobranca(contaIdInformada) {
+  if (contaIdInformada) {
+    const consultaEspecifica = await pool.query(
+      'SELECT * FROM configuracoes_pagamento WHERE id = $1 AND ativo = true',
+      [contaIdInformada]
+    );
+    if (consultaEspecifica.rows.length === 0) {
+      throw new Error('A conta selecionada não está ativa (ativo = SIM) para cobrança.');
+    }
+    return consultaEspecifica.rows[0].id;
+  }
+
+  const consultaAtiva = await pool.query(
+    'SELECT id FROM configuracoes_pagamento WHERE ativo = true ORDER BY id ASC LIMIT 1'
+  );
+  if (consultaAtiva.rows.length === 0) {
+    throw new Error('Nenhuma conta de pagamento está marcada como Ativa (ativo = SIM).');
+  }
+  return consultaAtiva.rows[0].id;
+}
+
 // ==================== MERCADO PAGO / PIX ====================
 app.post('/api/pagamento/pix', async (req, res) => {
   try {
@@ -203,7 +259,7 @@ app.post('/api/pagamento/pix', async (req, res) => {
 
     const clienteData = cliente || {};
     const valorCobranca = Number(total || valor_total || valor || 0);
-    
+
     let nomeCompleto = (cliente_nome || clienteData.nome || 'Cliente Teste').trim();
     let partesNome = nomeCompleto.split(' ');
     let firstName = partesNome[0] || 'Cliente';
@@ -218,7 +274,8 @@ app.post('/api/pagamento/pix', async (req, res) => {
       return res.status(400).json({ mensagem: 'O valor do pagamento deve ser maior que zero.' });
     }
 
-    const clientDinamico = await obterClienteMercadoPago(conta_id);
+    const idContaAtiva = await obterContaAtivaParaCobranca(conta_id);
+    const clientDinamico = await obterClienteMercadoPago(idContaAtiva);
     const payment = new Payment(clientDinamico);
     const idempotencyKey = `pix-${pedido_id || Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 
@@ -277,10 +334,10 @@ app.post('/api/pagamento/cartao-link', async (req, res) => {
       return res.status(400).json({ success: false, mensagem: 'E-mail inválido.' });
     }
 
-    const clientDinamico = await obterClienteMercadoPago(conta_id); 
+    const idContaAtiva = await obterContaAtivaParaCobranca(conta_id);
+    const clientDinamico = await obterClienteMercadoPago(idContaAtiva);
     const preference = new Preference(clientDinamico);
 
-    // Detecta se está em produção (HTTPS) ou local
     const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
     const host = req.get('host') || 'localhost:3000';
     const baseUrl = `${protocol}://${host}`;
@@ -335,10 +392,10 @@ app.post('/api/pagamento/cartao-link', async (req, res) => {
     });
   } catch (err) {
     console.error('ERRO DETALHADO DO MERCADO PAGO:', err.response?.data || err.message || err);
-    return res.status(500).json({ 
-      success: false, 
-      mensagem: 'Não foi possível gerar o link.', 
-      erro: err.response?.data?.message || err.message 
+    return res.status(500).json({
+      success: false,
+      mensagem: 'Não foi possível gerar o link.',
+      erro: err.response?.data?.message || err.message
     });
   }
 });
@@ -643,21 +700,86 @@ app.get('/api/pedidos/kanban', async (req, res) => {
 });
 
 // ==================== TAXAS DE ENTREGA ====================
+// Listar taxas de entrega
 app.get('/api/taxas-entrega', async (req, res) => {
   try {
-    const resultado = await pool.query('SELECT * FROM taxas_entrega ORDER BY bairro ASC');
+    const resultado = await pool.query(
+      'SELECT * FROM taxas_entrega ORDER BY bairro ASC'
+    );
     res.json(resultado.rows);
   } catch (err) {
+    console.error('Erro ao buscar taxas de entrega:', err);
     res.status(500).json({ mensagem: 'Erro ao buscar taxas de entrega' });
   }
 });
-
-app.get('/api/taxas-entrega/publicas', async (req, res) => {
+// Criar nova taxa de entrega
+app.post('/api/taxas-entrega', async (req, res) => {
   try {
-    const resultado = await pool.query('SELECT id, bairro, valor FROM taxas_entrega WHERE ativo = true ORDER BY bairro ASC');
-    res.json(resultado.rows);
+    const { bairro, valor } = req.body;
+    const bairroLimpo = String(bairro || '').trim();
+    const valorNum = Number(valor);
+
+    if (!bairroLimpo || Number.isNaN(valorNum) || valorNum < 0) {
+      return res.status(400).json({ mensagem: 'Bairro e valor válido são obrigatórios' });
+    }
+
+    const resultado = await pool.query(
+      'INSERT INTO taxas_entrega (bairro, valor, ativo) VALUES ($1, $2, true) RETURNING *',
+      [bairroLimpo, valorNum]
+    );
+
+    res.status(201).json(resultado.rows[0]);
   } catch (err) {
-    res.status(500).json({ mensagem: 'Erro ao carregar bairros' });
+    console.error('Erro ao cadastrar taxa:', err);
+    res.status(500).json({ mensagem: 'Erro ao cadastrar taxa de entrega' });
+  }
+});
+
+// Atualizar taxa de entrega existente pelo ID
+app.put('/api/taxas-entrega/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { bairro, valor } = req.body;
+    const bairroLimpo = String(bairro || '').trim();
+    const valorNum = Number(valor);
+
+    if (!bairroLimpo || Number.isNaN(valorNum) || valorNum < 0) {
+      return res.status(400).json({ mensagem: 'Bairro e valor válido são obrigatórios' });
+    }
+
+    const resultado = await pool.query(
+      'UPDATE taxas_entrega SET bairro = $1, valor = $2 WHERE id = $3 RETURNING *',
+      [bairroLimpo, valorNum, id]
+    );
+
+    if (resultado.rowCount === 0) {
+      return res.status(404).json({ mensagem: 'Taxa não encontrada' });
+    }
+
+    res.json(resultado.rows[0]);
+  } catch (err) {
+    console.error('Erro ao atualizar taxa:', err);
+    res.status(500).json({ mensagem: 'Erro ao atualizar taxa de entrega' });
+  }
+});
+
+// Excluir taxa de entrega pelo ID
+app.delete('/api/taxas-entrega/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const resultado = await pool.query(
+      'DELETE FROM taxas_entrega WHERE id = $1 RETURNING *',
+      [id]
+    );
+
+    if (resultado.rowCount === 0) {
+      return res.status(404).json({ mensagem: 'Taxa não encontrada' });
+    }
+
+    res.json({ mensagem: 'Taxa removida com sucesso' });
+  } catch (err) {
+    console.error('Erro ao excluir taxa:', err);
+    res.status(500).json({ mensagem: 'Erro ao excluir taxa de entrega' });
   }
 });
 
