@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from './services/supabase';
 
+
 const INTERVALO_ATUALIZACAO_MS = 30000; // 30 segundos
 
 export default function ListagemCardapio() {
